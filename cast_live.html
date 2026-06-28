@@ -305,6 +305,9 @@
       <button class="tmpl-chip tmpl-add" id="tmplAdd">＋設定</button>
     </div>
     <div class="tool-hint">テンプレを選ぶと、選んだ日に反映されます</div>
+    <button id="resetShiftBtn" style="display:none;margin-top:10px;width:100%;padding:10px;border:2px solid #FFB9B9;border-radius:12px;background:#FFF5F5;color:#E05260;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;">
+      🗑 選択中の日のシフトを消す
+    </button>
   </div>
 
   <div class="tool-card">
@@ -1864,6 +1867,17 @@ const CastApp = (function(){
     const info=document.getElementById('selectInfo');
     if(el)el.textContent=selected.size;
     if(info)info.classList.toggle('show', selected.size>0);
+    // リセットボタン：選択中の日のうち1日以上シフト入力済みがある場合のみ表示
+    const resetBtn=document.getElementById('resetShiftBtn');
+    if(resetBtn){
+      const wkData=Store.getState().weeks;
+      const hasShift=[...selected].some(ds=>{
+        const wk=weekKeyOf(ds);
+        const w=(wkData[cast]||{})[wk];
+        return w && w.shifts && w.shifts[ds] && w.shifts[ds].start!=null;
+      });
+      resetBtn.style.display=(selected.size>0 && hasShift)?'':'none';
+    }
   }
 
   function clearSelection(){ selected.clear(); renderCalendar(); updateSelectedCount(); }
@@ -2027,6 +2041,8 @@ const CastApp = (function(){
     openMemoModal, saveMemo, setKanzen,
     startVacationSelect, openCrDatePicker,
     getCastName:()=>cast,
+    getSelected:()=>selected,
+    setSaveState,
     markRead:()=>GasBridge.markRead(cast),
     getNotifications:()=>GasBridge.getNotifications(cast),
   };
@@ -2229,6 +2245,26 @@ document.querySelectorAll('.tmpl-chip:not(.tmpl-add)').forEach(chip=>{
   });
 });
 document.getElementById('tmplAdd').addEventListener('click',()=>CastApp.toast('テンプレ設定（本番で実装します）'));
+
+// 🗑 シフトリセットボタン
+document.getElementById('resetShiftBtn').addEventListener('click', async ()=>{
+  const targets=[...CastApp.getSelected()].filter(ds=>{
+    const wk=weekKeyOf(ds);
+    const w=(Store.getState().weeks[CastApp.getCastName()]||{})[wk];
+    return w && w.shifts && w.shifts[ds] && w.shifts[ds].start!=null;
+  });
+  if(targets.length===0){CastApp.toast('シフトが入力済みの日が選択されていません');return;}
+  if(!confirm(targets.length+'日分のシフトを消しますか？')){return;}
+  targets.forEach(ds=>{
+    Store.dispatch('SET_SHIFT',{cast:CastApp.getCastName(), ds, start:null, end:null});
+  });
+  CastApp.render();
+  CastApp.setSaveState('saving');
+  const ok=await GasBridge.flushNow();
+  CastApp.setSaveState(ok?'saved':'error');
+  CastApp.render();
+  CastApp.toast(targets.length+'日分のシフトを消しました🗑');
+});
 document.getElementById('snapBtn').addEventListener('click',()=>CastApp.toast('画像保存（本番で実装します）'));
 document.getElementById('crBtn').addEventListener('click',()=>CastApp.openCrDatePicker());
 document.getElementById('vacBtn').addEventListener('click',()=>CastApp.startVacationSelect());
