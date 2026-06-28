@@ -151,6 +151,8 @@
   .snap-btn{width:100%;padding:12px;border:2px solid var(--sky);border-radius:14px;background:#F0F8FF;color:#5B9BD5;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;}
   .snap-btn:active{transform:scale(.97);}
   .big-submit{font-size:16px!important;padding:16px!important;font-weight:800;}
+  .big-submit:disabled{opacity:.4;cursor:not-allowed;animation:none!important;
+    background:linear-gradient(135deg,#C8E6C9,#A5D6A7)!important;color:#fff!important;}
   @keyframes submit-pulse{
     0%, 60%, 100%{box-shadow:0 4px 16px rgba(95,208,160,.35);}
     30%           {box-shadow:0 0 0 10px rgba(95,208,160,.12), 0 4px 24px rgba(95,208,160,.55);}
@@ -1380,16 +1382,33 @@ const CastApp = (function(){
   function updateSubmitBtn(){
     const btn = document.querySelector('.big-submit');
     if(!btn) return;
-    // この月に「シフト入力済み＆未提出」の週があるかチェック
     const weeks = weeksInMonth(viewYM);
+
+    // シフト入力済み＆未提出の週があるか
     const hasUnsubmitted = weeks.some(wk=>{
       const w = Store.getWeek(cast, wk);
       return w && w.status === 'unsubmitted' && Object.keys(w.shifts||{}).length > 0;
     });
-    if(hasUnsubmitted){
+
+    // この月にシフトが1日も入っていないか
+    const hasAnyShift = weeks.some(wk=>{
+      const w = Store.getWeek(cast, wk);
+      return w && Object.keys(w.shifts||{}).length > 0;
+    });
+
+    if(!hasAnyShift){
+      // 入力ゼロ → グレーアウト・押せない
+      btn.disabled = true;
+      btn.classList.remove('needs-submit');
+      btn.textContent = '📤 シフトを入力してから提出してください';
+    } else if(hasUnsubmitted){
+      // 入力済み＆未提出 → キラキラ
+      btn.disabled = false;
       btn.classList.add('needs-submit');
       btn.textContent = '📤 シフトを提出してください！';
     } else {
+      // 全週提出済み → 通常
+      btn.disabled = false;
       btn.classList.remove('needs-submit');
       btn.textContent = '📤 この月のシフトを提出する';
     }
