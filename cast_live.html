@@ -188,7 +188,7 @@
 <div class="top">
   <div class="top-brand">
     <div class="top-logo">🌸</div>
-    <div><div class="top-name">サクラシフト</div><div class="top-user">🍀 あや さん</div></div>
+    <div><div class="top-name">サクラシフト</div><div class="top-user">🍀 <span id="topUserName"></span> さん</div></div>
   </div>
   <div class="top-actions">
     <button class="btn btn-soft" id="syncBtn">🔄 同期</button>
@@ -203,7 +203,7 @@
   <div class="hello" id="helloBanner">
     <div class="hello-text">
       <span class="ht-flower">🌷</span><span class="ht-flower">🌼</span>
-      <span class="ht-label">おかえりなさい、あやさん</span>
+      <span class="ht-label">おかえりなさい、<span id="helloUserName"></span>さん</span>
       <span class="ht-flower">🌼</span><span class="ht-flower">🌷</span>
     </div>
     <div class="hello-notice">📢 アプリが新しくなりました🎉 ご不明な点は店長までお願いします</div>
@@ -2252,16 +2252,16 @@ const logoutBtn=document.getElementById('logoutBtn');
 if(logoutBtn)logoutBtn.addEventListener('click',()=>{
   sessionStorage.removeItem('castAuth');
   sessionStorage.removeItem('castName');
-  location.href='cast_login.html';
+  location.href='index.html';
 });
 
 // URLパラメータ or sessionStorageからキャスト名取得
 const _urlParams=new URLSearchParams(location.search);
-const _castNameFromUrl=_urlParams.get('name')||sessionStorage.getItem('castName')||'あや';
+const _castNameFromUrl=_urlParams.get('name')||sessionStorage.getItem('castName')||'';
 const _castAuthOk=sessionStorage.getItem('castAuth')==='1';
 // 認証チェック（ローカルファイルは除外）
 if(!_castAuthOk && location.hostname!=='localhost' && location.protocol!=='file:'){
-  location.href='cast_login.html';
+  location.href='index.html';
 }
 
 // メール登録
@@ -2285,6 +2285,12 @@ async function saveCastEmail(){
 
 // 起動（URLパラメータのキャスト名を使用）
 CastApp.init(_castNameFromUrl);
+
+// 名前を画面に反映
+const _nameEl1 = document.getElementById('topUserName');
+const _nameEl2 = document.getElementById('helloUserName');
+if(_nameEl1) _nameEl1.textContent = _castNameFromUrl;
+if(_nameEl2) _nameEl2.textContent = _castNameFromUrl;
 
 </script>
 </body>
