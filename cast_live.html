@@ -150,6 +150,10 @@
   .tmpl-chip.tmpl-add{border-style:dashed;border-color:var(--text2);color:var(--text2);background:#fff;}
   .snap-btn{width:100%;padding:12px;border:2px solid var(--sky);border-radius:14px;background:#F0F8FF;color:#5B9BD5;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;}
   .snap-btn:active{transform:scale(.97);}
+  .snap-theme-row{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;}
+  .snap-theme-btn{padding:6px 14px;border-radius:20px;border:2px solid var(--line);background:#fff;font-size:11.5px;font-weight:800;cursor:pointer;font-family:inherit;color:var(--text2);transition:all .15s;}
+  .snap-theme-btn.active{border-color:var(--mint-deep);background:var(--mint);color:var(--text);}
+  .ics-btn{margin-top:8px;border-color:#C5C5E8!important;background:#F4F4FF!important;color:#5050B0!important;}
   .big-submit{font-size:16px!important;padding:16px!important;font-weight:800;}
   .big-submit:disabled{opacity:.4;cursor:not-allowed;animation:none!important;
     background:linear-gradient(135deg,#C8E6C9,#A5D6A7)!important;color:#fff!important;}
@@ -330,8 +334,15 @@
   </div>
 
   <div class="tool-card">
-    <div class="tool-title">📸 SNS用の画像を保存</div>
+    <div class="tool-title">📸 シフト画像を保存</div>
+    <div class="snap-theme-row" id="snapThemeRow">
+      <button class="snap-theme-btn active" data-theme="white" onclick="setSnapTheme('white')">⬜ ホワイト</button>
+      <button class="snap-theme-btn" data-theme="pink" onclick="setSnapTheme('pink')">🌸 ピンク</button>
+      <button class="snap-theme-btn" data-theme="mint" onclick="setSnapTheme('mint')">🌿 ミント</button>
+      <button class="snap-theme-btn" data-theme="dark" onclick="setSnapTheme('dark')">🖤 ダーク</button>
+    </div>
     <button class="snap-btn" id="snapBtn">🖼 シフト画像をダウンロード</button>
+    <button class="snap-btn ics-btn" id="icsBtn">📅 Googleカレンダーに追加（.ics）</button>
   </div>
 </div>
 
@@ -2314,7 +2325,200 @@ document.getElementById('resetShiftBtn').addEventListener('click', async ()=>{
   CastApp.render();
   CastApp.toast(targets.length+'日分のシフトを消しました🗑');
 });
-document.getElementById('snapBtn').addEventListener('click',()=>CastApp.toast('画像保存（本番で実装します）'));
+// ============================================================
+// 📸 シフト画像生成 & 📅 ICSエクスポート
+// ============================================================
+const SNAP_THEMES = {
+  white:{ bg:'#FFFFFF', headerBg:'#F0FBF4', headerText:'#4A5560', subText:'#5FD0A0',
+          dayBg:'#FFFFFF', workBg:'#F0FBF4', dayBorder:'#E4F4EC', workBorder:'#5FD0A0',
+          dayNum:'#4A5560', shiftText:'#2E9E6B', offText:'#C8D4DC',
+          sat:'#5B9BD5', sun:'#E05260', headerDayText:'#9CAAB5' },
+  pink: { bg:'#FFF5F8', headerBg:'#FFE8F0', headerText:'#B84870', subText:'#FF9EC0',
+          dayBg:'#FFFFFF', workBg:'#FFF0F5', dayBorder:'#FFD6E8', workBorder:'#FF9EC0',
+          dayNum:'#4A5560', shiftText:'#D4587C', offText:'#E0C4CC',
+          sat:'#5B9BD5', sun:'#E05260', headerDayText:'#C08098' },
+  mint: { bg:'#F0FBF4', headerBg:'#D4F0E4', headerText:'#1E6E48', subText:'#3DAF78',
+          dayBg:'#FFFFFF', workBg:'#E8F8EE', dayBorder:'#A7E8C8', workBorder:'#3DAF78',
+          dayNum:'#4A5560', shiftText:'#1E6E48', offText:'#B0CFC0',
+          sat:'#5B9BD5', sun:'#E05260', headerDayText:'#5FD0A0' },
+  dark: { bg:'#1C1C2E', headerBg:'#252540', headerText:'#E8E8F8', subText:'#A7E8C8',
+          dayBg:'#252538', workBg:'#1A3A50', dayBorder:'#383850', workBorder:'#5FD0A0',
+          dayNum:'#C8C8E0', shiftText:'#A7E8C8', offText:'#404058',
+          sat:'#7EC8E3', sun:'#FF9EC0', headerDayText:'#606080' },
+};
+let _snapTheme = 'white';
+
+function setSnapTheme(t){
+  _snapTheme = t;
+  document.querySelectorAll('.snap-theme-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.theme === t);
+  });
+}
+
+function _rrect(ctx, x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.lineTo(x+w-r, y); ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w, y+h-r); ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x+r, y+h); ctx.arcTo(x,y+h,x,y+h-r,r);
+  ctx.lineTo(x, y+r); ctx.arcTo(x,y,x+r,y,r);
+  ctx.closePath();
+}
+
+function generateShiftCanvas(){
+  const T = SNAP_THEMES[_snapTheme];
+  const SIZE = 1080, PAD = 44;
+  const canvas = document.createElement('canvas');
+  canvas.width = SIZE; canvas.height = SIZE;
+  const ctx = canvas.getContext('2d');
+  const castName = CastApp.getCastName();
+  const ym = CastApp.getViewYM();
+  const [year, mon] = ym.split('-').map(Number);
+
+  // 背景
+  ctx.fillStyle = T.bg;
+  ctx.fillRect(0, 0, SIZE, SIZE);
+
+  // ヘッダー
+  const HH = 118, HY = PAD;
+  ctx.fillStyle = T.headerBg;
+  _rrect(ctx, PAD, HY, SIZE-PAD*2, HH, 20); ctx.fill();
+
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = T.headerText;
+  ctx.font = `bold 52px 'Hiragino Maru Gothic ProN','Noto Sans JP',sans-serif`;
+  ctx.fillText(`${year}年 ${mon}月`, SIZE/2, HY+46);
+  ctx.fillStyle = T.subText;
+  ctx.font = `600 26px 'Hiragino Maru Gothic ProN','Noto Sans JP',sans-serif`;
+  ctx.fillText(`🌸 ${castName} さんのシフト`, SIZE/2, HY+88);
+
+  // 曜日ヘッダー
+  const DAYS = ['月','火','水','木','金','土','日'];
+  const GX = PAD, GW = SIZE-PAD*2;
+  const CW = GW/7;
+  const DHY = HY+HH+14, DHH = 46;
+
+  DAYS.forEach((d,i)=>{
+    ctx.fillStyle = i===5?T.sat:i===6?T.sun:T.headerDayText;
+    ctx.font = `bold 24px 'Hiragino Maru Gothic ProN','Noto Sans JP',sans-serif`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(d, GX+i*CW+CW/2, DHY+DHH/2);
+  });
+
+  // グリッド
+  const GY = DHY+DHH+8;
+  const GH = SIZE-GY-PAD;
+  const ROWS = 6, CH = GH/ROWS;
+  const firstDow = new Date(year,mon-1,1).getDay();
+  const startCol = firstDow===0?6:firstDow-1;
+  const daysInMon = new Date(year,mon,0).getDate();
+
+  // シフトデータ収集
+  const wkCache = {};
+  weeksInMonth(ym).forEach(wk=>{
+    const w = Store.getWeek(castName,wk);
+    if(w) wkCache[wk]=w;
+  });
+
+  function getInfo(d){
+    const ds=`${year}-${String(mon).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const wk=weekKeyOf(ds);
+    const w=wkCache[wk];
+    if(!w) return null;
+    if(w.vacations&&w.vacations[ds]) return{type:'vac'};
+    if(w.shifts&&w.shifts[ds]&&w.shifts[ds].start!=null) return{type:'work',shift:w.shifts[ds]};
+    return null;
+  }
+  function fmtH(h){ return h>=24?`${h-24}(翌)`:String(h); }
+
+  for(let d=1;d<=daysInMon;d++){
+    const pos=startCol+d-1;
+    const row=Math.floor(pos/7), col=pos%7;
+    const cx=GX+col*CW, cy=GY+row*CH;
+    const info=getInfo(d);
+    const isWork=info&&info.type==='work';
+    const isVac=info&&info.type==='vac';
+
+    // セル背景
+    ctx.fillStyle=isWork?T.workBg:T.dayBg;
+    _rrect(ctx,cx+3,cy+4,CW-6,CH-8,12); ctx.fill();
+    ctx.strokeStyle=isWork?T.workBorder:T.dayBorder;
+    ctx.lineWidth=isWork?2.5:1.5; ctx.stroke();
+
+    // 日付番号
+    const numColor=col===5?T.sat:col===6?T.sun:T.dayNum;
+    ctx.fillStyle=numColor;
+    ctx.font=`bold ${Math.round(CH*0.22)}px 'Hiragino Maru Gothic ProN','Noto Sans JP',sans-serif`;
+    ctx.textAlign='left'; ctx.textBaseline='top';
+    ctx.fillText(String(d), cx+10, cy+10);
+
+    // シフト内容
+    if(isWork){
+      ctx.fillStyle=T.shiftText;
+      ctx.font=`bold ${Math.round(CH*0.175)}px 'Hiragino Maru Gothic ProN','Noto Sans JP',sans-serif`;
+      ctx.textAlign='center'; ctx.textBaseline='bottom';
+      ctx.fillText(`${fmtH(info.shift.start)}-${fmtH(info.shift.end)}`, cx+CW/2, cy+CH-10);
+    } else if(isVac){
+      ctx.font=`${Math.round(CH*0.3)}px sans-serif`;
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText('🏖', cx+CW/2, cy+CH*0.62);
+    } else {
+      ctx.fillStyle=T.offText;
+      ctx.font=`${Math.round(CH*0.2)}px 'Hiragino Maru Gothic ProN','Noto Sans JP',sans-serif`;
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText('休', cx+CW/2, cy+CH*0.65);
+    }
+  }
+  return canvas;
+}
+
+document.getElementById('snapBtn').addEventListener('click',()=>{
+  try{
+    const canvas=generateShiftCanvas();
+    const ym=CastApp.getViewYM();
+    const a=document.createElement('a');
+    a.href=canvas.toDataURL('image/png');
+    a.download=`shift_${ym}_${CastApp.getCastName()}.png`;
+    a.click();
+    CastApp.toast('画像を保存しました📸');
+  }catch(e){ CastApp.toast('画像生成に失敗しました'); console.error(e); }
+});
+
+document.getElementById('icsBtn').addEventListener('click',()=>{
+  try{
+    const castName=CastApp.getCastName();
+    const ym=CastApp.getViewYM();
+    const [year,mon]=ym.split('-').map(Number);
+    const pad=n=>String(n).padStart(2,'0');
+    let events='';
+    weeksInMonth(ym).forEach(wk=>{
+      const w=Store.getWeek(castName,wk);
+      if(!w||!w.shifts) return;
+      Object.entries(w.shifts).forEach(([ds,shift])=>{
+        if(!ds.startsWith(ym)||!shift||shift.start==null) return;
+        const [y,m,d]=ds.split('-').map(Number);
+        // 時間を実際の日時に変換（25時=翌1時）
+        const sDate=new Date(y,m-1,d); sDate.setHours(shift.start,0,0,0);
+        const eDate=new Date(y,m-1,d); eDate.setHours(shift.end,0,0,0);
+        const fmt=dt=>`${dt.getFullYear()}${pad(dt.getMonth()+1)}${pad(dt.getDate())}T${pad(dt.getHours())}0000`;
+        events+=`BEGIN:VEVENT\r\nUID:sakurashift-${ds}-${castName}\r\n`
+          +`DTSTART;TZID=Asia/Tokyo:${fmt(sDate)}\r\n`
+          +`DTEND;TZID=Asia/Tokyo:${fmt(eDate)}\r\n`
+          +`SUMMARY:🌸 シフト\r\n`
+          +`DESCRIPTION:${castName} ${shift.start}時-${shift.end}時\r\n`
+          +`END:VEVENT\r\n`;
+      });
+    });
+    const ics=`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//SakuraShift//JP\r\nCALSCALE:GREGORIAN\r\n${events}END:VCALENDAR`;
+    const blob=new Blob([ics],{type:'text/calendar;charset=utf-8'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=`sakurashift_${ym}.ics`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    CastApp.toast('カレンダーファイルを保存しました📅');
+  }catch(e){ CastApp.toast('エクスポートに失敗しました'); console.error(e); }
+});
 document.getElementById('crBtn').addEventListener('click',()=>CastApp.openCrDatePicker());
 document.getElementById('vacBtn').addEventListener('click',()=>CastApp.startVacationSelect());
 // 選択解除
