@@ -151,6 +151,20 @@
   .snap-btn{width:100%;padding:12px;border:2px solid var(--sky);border-radius:14px;background:#F0F8FF;color:#5B9BD5;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;}
   .snap-btn:active{transform:scale(.97);}
   .big-submit{font-size:16px!important;padding:16px!important;font-weight:800;}
+  @keyframes submit-pulse{
+    0%  {box-shadow:0 0 0 0 rgba(95,208,160,.7), 0 4px 16px rgba(95,208,160,.4);}
+    50% {box-shadow:0 0 0 10px rgba(95,208,160,0), 0 4px 24px rgba(95,208,160,.6);}
+    100%{box-shadow:0 0 0 0 rgba(95,208,160,.0), 0 4px 16px rgba(95,208,160,.4);}
+  }
+  @keyframes submit-shine{
+    0%  {background-position:200% center;}
+    100%{background-position:-200% center;}
+  }
+  .big-submit.needs-submit{
+    background:linear-gradient(90deg,#5FD0A0,#A7E8C8,#fff,#A7E8C8,#5FD0A0);
+    background-size:300% auto;
+    animation:submit-pulse 1.4s ease-in-out infinite, submit-shine 2.5s linear infinite;
+  }
   /* 通知タブ */
   .notif-list{display:flex;flex-direction:column;gap:10px;padding-bottom:10px;}
   .notif-header{display:flex;align-items:center;justify-content:space-between;padding:10px 0 8px;}
@@ -1361,6 +1375,25 @@ const CastApp = (function(){
   function render(){
     renderCalendar();
     renderSaveState();
+    updateSubmitBtn();
+  }
+
+  function updateSubmitBtn(){
+    const btn = document.querySelector('.big-submit');
+    if(!btn) return;
+    // この月に「シフト入力済み＆未提出」の週があるかチェック
+    const weeks = weeksInMonth(viewYM);
+    const hasUnsubmitted = weeks.some(wk=>{
+      const w = Store.getWeek(cast, wk);
+      return w && w.status === 'unsubmitted' && Object.keys(w.shifts||{}).length > 0;
+    });
+    if(hasUnsubmitted){
+      btn.classList.add('needs-submit');
+      btn.textContent = '📤 シフトを提出してください！';
+    } else {
+      btn.classList.remove('needs-submit');
+      btn.textContent = '📤 この月のシフトを提出する';
+    }
   }
 
   function getDayInfo(ds){
