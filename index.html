@@ -37,13 +37,13 @@
 
   <div class="field">
     <label>お名前（源氏名）</label>
-    <input type="text" id="nameInput" placeholder="例：あや" autocomplete="off" autocorrect="off" spellcheck="false">
+    <input type="text" id="nameInput" placeholder="" autocomplete="off" autocorrect="off" spellcheck="false">
   </div>
 
   <div class="field">
-    <label>パスワード（3桁数字）</label>
+    <label>パスワード</label>
     <div class="pw-wrap">
-      <input type="password" id="pwInput" placeholder="000" maxlength="3" inputmode="numeric" autocomplete="current-password">
+      <input type="password" id="pwInput" placeholder="" maxlength="3" inputmode="numeric" autocomplete="current-password">
       <button class="pw-toggle" onclick="togglePw()" tabindex="-1">👁</button>
     </div>
   </div>
@@ -126,6 +126,15 @@ document.getElementById('pwInput').addEventListener('keydown',e=>{
 document.getElementById('nameInput').addEventListener('keydown',e=>{
   if(e.key==='Enter') document.getElementById('pwInput').focus();
 });
+
+// URLパラメータから名前を自動入力
+(()=>{
+  const p=new URLSearchParams(location.search).get('name');
+  if(p){
+    document.getElementById('nameInput').value=p;
+    document.getElementById('pwInput').focus();
+  }
+})();
 </script>
 </body>
 </html>
