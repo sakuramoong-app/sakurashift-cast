@@ -2587,6 +2587,18 @@ const _nameEl2 = document.getElementById('helloUserName');
 if(_nameEl1) _nameEl1.textContent = _castNameFromUrl;
 if(_nameEl2) _nameEl2.textContent = _castNameFromUrl;
 
+// 保存済みメールアドレスを入力欄に反映
+(async()=>{
+  try{
+    const res=await fetch('https://script.google.com/macros/s/AKfycbyvlg5JbvPsqxkdvztwRXYBqPkvWjknicwfm2ksTlIxIQ-7N1zd72cn09c6oSNIkIxw/exec?token=sakura2025shift&action=loadMaster&_t='+Date.now());
+    const d=await res.json();
+    const emails=(d.master&&d.master.settings&&d.master.settings.castEmails)||{};
+    const myEmail=emails[_castNameFromUrl];
+    const input=document.getElementById('castEmailInput');
+    if(input&&myEmail) input.value=myEmail;
+  }catch(e){ console.warn('メールアドレス読込エラー',e); }
+})();
+
 </script>
 </body>
 </html>
