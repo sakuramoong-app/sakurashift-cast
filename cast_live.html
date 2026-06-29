@@ -102,6 +102,8 @@
   .cal-head .sat{color:#7FB8E8;}
   .cal-head .sun{color:var(--pink-deep);}
   .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;}
+  .cell.other-month{opacity:.55;}
+  .cell.other-month::after{content:'翌月';position:absolute;top:1px;right:3px;font-size:7px;color:#FF9EC0;font-weight:800;}
   .cal-loading{grid-column:1/-1;text-align:center;padding:50px 0;color:var(--mint-deep);font-weight:800;font-size:14px;}
   .cell{aspect-ratio:1/1.12;border-radius:15px;background:#F8FBF9;border:2px solid transparent;padding:5px 3px 3px;cursor:pointer;display:flex;flex-direction:column;align-items:center;transition:transform .1s;position:relative;overflow:hidden;}
   .cell:active{transform:scale(.93);}
@@ -687,12 +689,14 @@ function weekTouchesMonth(weekKey, yearMonth){
 }
 
 function weeksInMonth(yearMonth){
+  // A方式：週の月曜日（週キー）が属する月の週だけを返す（内勤と統一）
   const [y,m] = yearMonth.split('-').map(Number);
   const first = new Date(y, m-1, 1, 12,0,0);
   const last  = new Date(y, m,   0, 12,0,0);
   const out = new Set();
   for(let d=new Date(first); d<=last; d.setDate(d.getDate()+1)){
-    out.add(weekKeyOf(ymd(d)));
+    const wk = weekKeyOf(ymd(d));
+    if(wk.slice(0,7) === yearMonth) out.add(wk);
   }
   return [...out].sort();
 }
@@ -1449,24 +1453,26 @@ const CastApp = (function(){
     const grid = document.getElementById('grid');
     if(!grid) return;
     grid.innerHTML='';
-    const [y,m] = viewYM.split('-').map(Number);
-    const first = new Date(y, m-1, 1);
-    const startDow = (first.getDay()+6)%7;
-    const days = new Date(y, m, 0).getDate();
     const todayStr = ymd(new Date());
     const stampBase = new Date(); stampBase.setHours(stampBase.getHours()-5);
     const stampBaseStr = ymd(stampBase);
 
-    for(let i=0;i<startDow;i++){
-      const e=document.createElement('div'); e.className='cell empty'; grid.appendChild(e);
-    }
-    for(let d=1; d<=days; d++){
-      const ds = `${viewYM}-${String(d).padStart(2,'0')}`;
-      const dow = (new Date(y,m-1,d).getDay()+6)%7;
+    // A方式：この月に属する週（月曜基準）の全日付を並べる
+    // → 6月なら 6/1(月)〜7/5(日)、7月なら 7/6(月)〜 となる
+    const wks = weeksInMonth(viewYM);
+    const allDates = [];
+    wks.forEach(wk => weekDates(wk).forEach(ds => allDates.push(ds)));
+
+    allDates.forEach(ds => {
+      const [yy,mm,dd] = ds.split('-').map(Number);
+      const d = dd;
+      const dow = (new Date(yy,mm-1,dd).getDay()+6)%7;
       const info = getDayInfo(ds);
       const cell = document.createElement('div');
       cell.className='cell';
       cell.dataset.ds = ds;
+      // 表示中の月と違う月の日（翌月のはみ出し分）は薄く
+      if(ds.slice(0,7)!==viewYM) cell.classList.add('other-month');
       if(dow===5)cell.classList.add('sat');
       if(dow===6)cell.classList.add('sun');
       if(ds===todayStr)cell.classList.add('today');
@@ -1541,7 +1547,7 @@ const CastApp = (function(){
 
       cell.addEventListener('click', ()=>onCellClick(ds, info));
       grid.appendChild(cell);
-    }
+    });
   }
 
   function onCellClick(ds, info){
@@ -2495,7 +2501,7 @@ document.getElementById('icsBtn').addEventListener('click',()=>{
       const w=Store.getWeek(castName,wk);
       if(!w||!w.shifts) return;
       Object.entries(w.shifts).forEach(([ds,shift])=>{
-        if(!ds.startsWith(ym)||!shift||shift.start==null) return;
+        if(!shift||shift.start==null) return;
         const [y,m,d]=ds.split('-').map(Number);
         // 時間を実際の日時に変換（25時=翌1時）
         const sDate=new Date(y,m-1,d); sDate.setHours(shift.start,0,0,0);
