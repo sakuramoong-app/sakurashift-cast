@@ -101,17 +101,17 @@
   .cal-head div{text-align:center;font-size:11px;font-weight:800;color:var(--text2);padding:3px 0;}
   .cal-head .sat{color:#7FB8E8;}
   .cal-head .sun{color:var(--pink-deep);}
-  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;}
   .cell.other-month{opacity:.55;}
   .cell.other-month::after{content:'翌月';position:absolute;top:1px;right:3px;font-size:7px;color:#FF9EC0;font-weight:800;}
   .cal-loading{grid-column:1/-1;text-align:center;padding:50px 0;color:var(--mint-deep);font-weight:800;font-size:14px;}
-  .cell{aspect-ratio:1/1.12;border-radius:15px;background:#F8FBF9;border:2px solid transparent;padding:5px 3px 3px;cursor:pointer;display:flex;flex-direction:column;align-items:center;transition:transform .1s;position:relative;overflow:hidden;}
+  .cell{aspect-ratio:1/1.35;border-radius:14px;background:#F8FBF9;border:2px solid transparent;padding:6px 3px 4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;transition:transform .1s;position:relative;overflow:hidden;}
   .cell:active{transform:scale(.93);}
   .cell.empty{background:transparent;cursor:default;}
-  .cell .dnum{font-size:13px;font-weight:800;color:var(--text);line-height:1.1;}
+  .cell .dnum{font-size:15px;font-weight:800;color:var(--text);line-height:1.1;}
   .cell.sat .dnum{color:#7FB8E8;}
   .cell.sun .dnum{color:var(--pink-deep);}
-  .cell .tag{margin-top:3px;font-size:10px;font-weight:800;line-height:1.3;padding:3px 3px;border-radius:8px;text-align:center;width:100%;letter-spacing:-.02em;}
+  .cell .tag{margin-top:4px;font-size:11px;font-weight:800;line-height:1.3;padding:4px 3px;border-radius:8px;text-align:center;width:100%;letter-spacing:-.02em;}
   .cell.has-shift{background:linear-gradient(160deg,#EAFBF2,#E0F7EC);}
   .tag.shift{background:linear-gradient(135deg,var(--mint),var(--mint-deep));color:#fff;}
   .tag.cr{background:linear-gradient(135deg,var(--pink),var(--pink-deep));color:#fff;}
@@ -147,6 +147,9 @@
   .apply-btn:active{transform:scale(.95);}
   .tool-hint{font-size:11px;color:var(--text2);font-weight:600;margin-top:8px;text-align:center;}
   .tmpl-row{display:flex;flex-wrap:wrap;gap:7px;}
+  .input-tab-row{display:flex;gap:6px;margin-bottom:12px;}
+  .input-tab{flex:1;padding:9px;border-radius:11px;border:2px solid var(--line);background:#F8FBF9;font-family:inherit;font-size:12.5px;font-weight:800;color:var(--text2);cursor:pointer;transition:all .15s;}
+  .input-tab.active{border-color:var(--mint-deep);background:var(--mint);color:var(--text);}
   .tmpl-chip{padding:9px 15px;border:2px solid var(--mint);border-radius:99px;background:#F2FAF6;color:var(--mint-deep);font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;}
   .tmpl-chip:active{transform:scale(.95);}
   .tmpl-chip.tmpl-add{border-style:dashed;border-color:var(--text2);color:var(--text2);background:#fff;}
@@ -290,44 +293,38 @@
 <!-- 一括入力パネル -->
 <div class="tools" id="toolsPanel">
   <div class="tool-card">
-    <div class="tool-title">📅 曜日でまとめて入力</div>
-    <div class="dow-row" id="dowRow">
-      <label><input type="checkbox" value="1">月</label>
-      <label><input type="checkbox" value="2">火</label>
-      <label><input type="checkbox" value="3">水</label>
-      <label><input type="checkbox" value="4">木</label>
-      <label><input type="checkbox" value="5">金</label>
-      <label><input type="checkbox" value="6">土</label>
-      <label><input type="checkbox" value="0">日</label>
+    <div class="input-tab-row">
+      <button class="input-tab active" id="inputTabDow" onclick="switchInputTab('dow')">📅 曜日でまとめて</button>
+      <button class="input-tab" id="inputTabTmpl" onclick="switchInputTab('tmpl')">⭐ よく使うシフト</button>
     </div>
-    <div class="time-row">
-      <select id="dowStart" class="time-sel"></select>
-      <span class="time-tilde">〜</span>
-      <select id="dowEnd" class="time-sel"></select>
-      <button class="apply-btn" id="dowApply">反映</button>
-    </div>
-  </div>
 
-  <div class="tool-card">
-    <div class="tool-title">✅ 選んだ日にまとめて入力</div>
-    <div class="time-row">
-      <select id="selStart" class="time-sel"></select>
-      <span class="time-tilde">〜</span>
-      <select id="selEnd" class="time-sel"></select>
-      <button class="apply-btn" id="selApply">反映</button>
+    <div class="input-tab-panel" id="inputPanelDow">
+      <div class="dow-row" id="dowRow">
+        <label><input type="checkbox" value="1">月</label>
+        <label><input type="checkbox" value="2">火</label>
+        <label><input type="checkbox" value="3">水</label>
+        <label><input type="checkbox" value="4">木</label>
+        <label><input type="checkbox" value="5">金</label>
+        <label><input type="checkbox" value="6">土</label>
+        <label><input type="checkbox" value="0">日</label>
+      </div>
+      <div class="time-row">
+        <select id="dowStart" class="time-sel"></select>
+        <span class="time-tilde">〜</span>
+        <select id="dowEnd" class="time-sel"></select>
+        <button class="apply-btn" id="dowApply">反映</button>
+      </div>
     </div>
-    <div class="tool-hint">カレンダーで日付をタップして選んでください</div>
-  </div>
 
-  <div class="tool-card">
-    <div class="tool-title">⭐ よく使うシフト（テンプレ）</div>
-    <div class="tmpl-row" id="tmplRow">
-      <button class="tmpl-chip" data-s="17" data-e="24">17-24</button>
-      <button class="tmpl-chip" data-s="12" data-e="20">12-20</button>
-      <button class="tmpl-chip" data-s="18" data-e="29">18-5</button>
-      <button class="tmpl-chip tmpl-add" id="tmplAdd">＋設定</button>
+    <div class="input-tab-panel" id="inputPanelTmpl" style="display:none">
+      <div class="tmpl-row" id="tmplRow">
+        <button class="tmpl-chip" data-s="17" data-e="24">17-24</button>
+        <button class="tmpl-chip" data-s="12" data-e="20">12-20</button>
+        <button class="tmpl-chip" data-s="18" data-e="29">18-5</button>
+        <button class="tmpl-chip tmpl-add" id="tmplAdd">＋設定</button>
+      </div>
+      <div class="tool-hint">テンプレを選ぶと、選んだ日に反映されます</div>
     </div>
-    <div class="tool-hint">テンプレを選ぶと、選んだ日に反映されます</div>
   </div>
 
   <div class="tool-card">
@@ -1704,14 +1701,14 @@ const CastApp = (function(){
     updateCrSubmitCard();
     await _autoSave();
     okWeeks.forEach(wk=>{
-      const crMsg = cast+'さんから変更リクエスト（'+weekLabel(wk)+'）';
+      const crMsg = cast+'さんがシフト変更申請をしました';
       GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'change', message:crMsg}).catch(()=>{});
       GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
-        subject:'【サクラシフト】'+cast+'さんから変更リクエスト',
+        subject:'【サクラシフト】'+cast+'さんがシフト変更申請をしました',
         htmlBody:buildStaffMailHtml(cast, crMsg, '🔄 変更リクエスト')
       }).catch(()=>{});
     });
-    addMyNotif('my_change', `変更リクエストを送りました（${count}日分）`);
+    addMyNotif('my_change', 'シフト変更申請をしました');
     toast(`${count}日分の変更リクエストを送りました🙏`);
   }
 
@@ -1795,13 +1792,13 @@ const CastApp = (function(){
     render();
     await _autoSave();
     // 内勤への通知（ntf + メール）
-    const vacMsg = cast+'さんから長期休暇申請（'+start+'〜'+end+'）'+(memo?'：'+memo:'');
+    const vacMsg = cast+'さんが長期休暇を申請しました';
     GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'vacation', message:vacMsg}).catch(()=>{});
     GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
-      subject:'【サクラシフト】'+cast+'さんから長期休暇申請',
+      subject:'【サクラシフト】'+cast+'さんが長期休暇を申請しました',
       htmlBody:buildStaffMailHtml(cast, vacMsg, '🏖 長期休暇申請')
     }).catch(()=>{});
-    addMyNotif('my_vacation', `長期休暇を申請しました（${start}〜${end}）`);
+    addMyNotif('my_vacation', '長期休暇を申請しました');
     toast('長期休暇を申請しました🌸 内勤からの連絡をお待ちください');
   }
 
@@ -1950,10 +1947,10 @@ const CastApp = (function(){
 
     // 内勤へ通知（週ごと）
     okWeeks.forEach(wk=>{
-      const crMsg = cast+'さんから変更リクエスト（'+weekLabel(wk)+'）';
+      const crMsg = cast+'さんがシフト変更申請をしました';
       GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'change', message:crMsg}).catch(()=>{});
       GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
-        subject:'【サクラシフト】'+cast+'さんから変更リクエスト',
+        subject:'【サクラシフト】'+cast+'さんがシフト変更申請をしました',
         htmlBody:buildStaffMailHtml(cast, crMsg, '🔄 変更リクエスト')
       }).catch(()=>{});
     });
@@ -2035,10 +2032,10 @@ const CastApp = (function(){
     render();
     await _autoSave();
     // ★ 内勤への通知（変更リクエスト）
-    const crMsg = cast+'さんから変更リクエスト（'+weekLabel(wk)+'）';
+    const crMsg = cast+'さんがシフト変更申請をしました';
     GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'change', message:crMsg}).catch(()=>{});
     GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
-      subject:'【サクラシフト】'+cast+'さんから変更リクエスト',
+      subject:'【サクラシフト】'+cast+'さんがシフト変更申請をしました',
       htmlBody:buildStaffMailHtml(cast, crMsg, '🔄 変更リクエスト')
     }).catch(()=>{});
     addMyNotif('my_change', `変更リクエストを送りました（${weekLabel(wk)}）`);
@@ -2152,8 +2149,8 @@ const CastApp = (function(){
     render();
     // ★ 内勤への通知（シフト提出）
     if(submitted > 0 && ok){
-      const submitMsg = cast+'さんがシフトを提出しました（'+viewYM+'）';
-      addMyNotif('my_submit', `シフトを提出しました（${viewYM.replace('-','年')}月）`);
+      const submitMsg = cast+'さんがシフトを提出しました';
+      addMyNotif('my_submit', 'シフト提出が完了しました');
       GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'submit', message:submitMsg}).catch(()=>{});
       GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
         subject:'【サクラシフト】'+cast+'さんがシフトを提出しました',
@@ -2564,8 +2561,6 @@ function hourLabel(h){return h>=25?(h-24)+'(翌)':(h===24?'24':String(h));}
 function fillTimeSelect(el,from,to,def){el.innerHTML='';for(let h=from;h<=to;h++){const o=document.createElement('option');o.value=h;o.textContent=hourLabel(h);if(h===def)o.selected=true;el.appendChild(o);}}
 fillTimeSelect(document.getElementById('dowStart'),12,28,17);
 fillTimeSelect(document.getElementById('dowEnd'),13,29,24);
-fillTimeSelect(document.getElementById('selStart'),12,28,17);
-fillTimeSelect(document.getElementById('selEnd'),13,29,24);
 
 // 曜日一括
 document.getElementById('dowApply').addEventListener('click',async ()=>{
@@ -2575,14 +2570,6 @@ document.getElementById('dowApply').addEventListener('click',async ()=>{
   if(s>=e){CastApp.toast('退勤は出勤より後に設定してください');return;}
   const r=await CastApp.applyByDow(dows,s,e);
   CastApp.toast(r.okCount+'日分を入力しました✨');
-});
-// 選択日一括
-document.getElementById('selApply').addEventListener('click',async ()=>{
-  const s=+document.getElementById('selStart').value,e=+document.getElementById('selEnd').value;
-  if(s>=e){CastApp.toast('退勤は出勤より後に設定してください');return;}
-  const r=await CastApp.applyToSelected(s,e);
-  if(r.okCount===0)CastApp.toast('カレンダーで日付を選んでください');
-  else CastApp.toast(r.okCount+'日分を入力しました✨');
 });
 // テンプレ
 document.querySelectorAll('.tmpl-chip:not(.tmpl-add)').forEach(chip=>{
@@ -2594,6 +2581,14 @@ document.querySelectorAll('.tmpl-chip:not(.tmpl-add)').forEach(chip=>{
   });
 });
 document.getElementById('tmplAdd').addEventListener('click',()=>CastApp.toast('テンプレ設定（本番で実装します）'));
+
+// 入力タブ切替
+function switchInputTab(tab){
+  document.getElementById('inputTabDow').classList.toggle('active', tab==='dow');
+  document.getElementById('inputTabTmpl').classList.toggle('active', tab==='tmpl');
+  document.getElementById('inputPanelDow').style.display = tab==='dow'?'':'none';
+  document.getElementById('inputPanelTmpl').style.display = tab==='tmpl'?'':'none';
+}
 
 // 🗑 シフトリセットボタン
 document.getElementById('resetShiftBtn').addEventListener('click', async ()=>{
