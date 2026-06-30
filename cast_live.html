@@ -268,6 +268,7 @@
       <span><i class="dot" style="background:#fff;border:2px solid var(--mint-deep)"></i>確定</span>
       <span><i class="dot" style="background:#fff;border:2px solid var(--pink-deep)"></i>変更申請中</span>
       <span class="legend-hint">📝 シフト入力済みの日を長押しで備考を追加できます</span>
+      <span class="legend-hint">📝 提出済み・確定済みシフトの変更は、変更したい日付をタップ（複数選択可）後、変更リクエスト提出ボタンを押してください</span>
     </div>
   </div>
   </div><!-- /tabCalendar -->
@@ -330,9 +331,14 @@
   </div>
 
   <div class="tool-card">
-    <div class="tool-title">💌 提出済みのシフトを変えたいとき</div>
-    <button class="cr-bar-btn" id="crBtn">✏️ 変更リクエスト</button>
+    <div class="tool-title">🏖 通常のシフトと異なる場合（長期休暇等）</div>
     <button class="cr-bar-btn vac-btn" id="vacBtn"><span class="vac-ico">🏖</span> 長期休暇申請</button>
+  </div>
+
+  <div class="tool-card" id="crSubmitCard" style="display:none">
+    <div class="tool-title">✏️ 変更リクエスト</div>
+    <div class="tool-hint" id="crSubmitHint">変更したい確定済みの日付をタップして編集してください</div>
+    <button class="cr-bar-btn" id="crSubmitBtn" style="margin-top:8px">📤 変更リクエストを提出（<span id="crSubmitCount">0</span>日）</button>
   </div>
 
   <div class="tool-card">
@@ -406,6 +412,8 @@
   .cr-mini-radio input{width:16px;height:16px;accent-color:var(--mint-deep);}
   .cr-time-mini{display:flex;gap:8px;margin-top:10px;}
   .cr-time-mini select{flex:1;padding:9px;}
+  .cell.cr-pending{border-color:#FF9800!important;background:#FFF3E0!important;}
+  .cell.cr-pending::before{content:'変更';position:absolute;top:2px;left:3px;font-size:7px;color:#FF9800;font-weight:800;z-index:2;}
   /* 完全終了 */
   .kanzen-label{display:flex;align-items:center;gap:2px;font-size:10px;font-weight:800;color:var(--text2);cursor:pointer;position:absolute;bottom:2px;left:2px;line-height:1;}
   .kanzen-label input{width:13px;height:13px;accent-color:var(--mint-deep);cursor:pointer;}
@@ -1372,6 +1380,7 @@ const CastApp = (function(){
   let cast = 'あや';
   let viewYM = (function(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); })();
   let selected = new Set();
+  let _crPending = {};  // 変更リクエストの保留中編集 { ds: {type, start, end, wk, label} }
 
   async function init(castName){
     cast = castName;
@@ -1553,6 +1562,7 @@ const CastApp = (function(){
       const selectable = !info.locked && !info.vacation;
       if(selectable) cell.dataset.selectable='1';
       if(selected.has(ds)) cell.classList.add('selected');
+      if(_crPending[ds]) cell.classList.add('cr-pending');
 
       cell.addEventListener('click', ()=>onCellClick(ds, info));
       grid.appendChild(cell);
@@ -1562,14 +1572,14 @@ const CastApp = (function(){
   function onCellClick(ds, info){
     // 休暇セルはクリック不可
     if(info.vacation) return;
-    // 確定済み・変更申請中 → 変更リクエストモーダル（シフトあり・休日どちらも）
+    // 確定済み・変更申請中 → 変更内容編集ポップアップ（複数日ためる方式）
     if(info.status==='confirmed' || info.status==='change_confirmed'){
-      openChangeRequestModal(ds, info);
+      openCrEditPopup(ds, info);
       return;
     }
-    // inputting以降のロック状態 → 変更リクエスト案内
+    // inputting以降のロック状態 → 案内
     if(info.locked){
-      toast('内勤が確認中のため編集できません。変更は「変更リクエスト」からお願いします🙏');
+      toast('内勤が確認中のため編集できません🙏');
       return;
     }
     // unsubmitted / waiting → 通常選択（編集可能）
@@ -1577,6 +1587,132 @@ const CastApp = (function(){
     else selected.add(ds);
     renderCalendar();
     updateSelectedCount();
+  }
+
+  /* 確定済みの日タップ → 変更内容編集ポップアップ（_crPendingにためる） */
+  function openCrEditPopup(ds, info){
+    const existing = document.getElementById('crEditModal');
+    if(existing) existing.remove();
+    const d = new Date(ds+'T12:00:00');
+    const dows = ['月','火','水','木','金','土','日'];
+    const label = `${d.getMonth()+1}/${d.getDate()}(${dows[(d.getDay()+6)%7]})`;
+    const wk = weekKeyOf(ds);
+    const curShift = info.shift ? fmtShift(info.shift.start, info.shift.end) : 'お休み';
+    const isRest = !info.shift;
+    const pending = _crPending[ds];
+
+    // 初期値
+    const initType = pending ? pending.type : (isRest ? 'time' : 'holiday');
+    const initStart = pending ? pending.start : (info.shift ? info.shift.start : 18);
+    const initEnd = pending ? pending.end : (info.shift ? info.shift.end : 24);
+
+    const typeOptions = isRest
+      ? `<label class="cr-type-label"><input type="radio" name="crEditType" value="time" checked> 出勤にする（時間を指定）</label>`
+      : `<label class="cr-type-label"><input type="radio" name="crEditType" value="holiday" ${initType==='holiday'?'checked':''}> お休みにする</label>
+         <label class="cr-type-label"><input type="radio" name="crEditType" value="time" ${initType==='time'?'checked':''}> 時間を変更する</label>`;
+
+    const modal = document.createElement('div');
+    modal.id = 'crEditModal';
+    modal.innerHTML = `
+      <div class="memo-modal-bg"></div>
+      <div class="memo-modal-box">
+        <div class="memo-modal-title">✏️ ${label} の変更</div>
+        <div class="cr-date-label">現在：${curShift}</div>
+        ${pending?'<div class="cr-already">この日は変更予定にすでに入っています。上書きできます。</div>':''}
+        <div class="cr-type-row">${typeOptions}</div>
+        <div id="crEditTimePanel" style="${initType==='time'?'':'display:none;'}margin-top:12px">
+          <div class="vac-label">出勤</div>
+          <select class="biz-sel" id="crEditStart" style="width:100%;padding:10px;margin-bottom:8px"></select>
+          <div class="vac-label">退勤</div>
+          <select class="biz-sel" id="crEditEnd" style="width:100%;padding:10px"></select>
+        </div>
+        <div class="memo-modal-actions" style="margin-top:14px">
+          ${pending?'<button class="memo-btn-clear" id="crEditRemove" style="color:#E05260">この日を取り消す</button>':'<button class="memo-btn-clear" id="crEditCancel">キャンセル</button>'}
+          <button class="memo-btn-save" id="crEditAdd">変更予定に追加</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+
+    const startSel=modal.querySelector('#crEditStart');
+    const endSel=modal.querySelector('#crEditEnd');
+    for(let h=12;h<=28;h++){const lbl=h>=25?(h-24)+'(翌)':String(h);startSel.innerHTML+=`<option value="${h}">${lbl}時</option>`;}
+    for(let h=13;h<=29;h++){const lbl=h>=25?(h-24)+'(翌)':String(h);endSel.innerHTML+=`<option value="${h}">${lbl}時</option>`;}
+    startSel.value=initStart; endSel.value=initEnd;
+
+    modal.querySelectorAll('input[name="crEditType"]').forEach(radio=>{
+      radio.addEventListener('change',()=>{
+        modal.querySelector('#crEditTimePanel').style.display=radio.value==='time'?'':'none';
+      });
+    });
+    modal.querySelector('.memo-modal-bg').addEventListener('click',()=>modal.remove());
+    const cancelBtn=modal.querySelector('#crEditCancel');
+    if(cancelBtn) cancelBtn.addEventListener('click',()=>modal.remove());
+    const removeBtn=modal.querySelector('#crEditRemove');
+    if(removeBtn) removeBtn.addEventListener('click',()=>{
+      delete _crPending[ds];
+      modal.remove();
+      renderCalendar();
+      updateCrSubmitCard();
+      toast('変更予定から外しました');
+    });
+    modal.querySelector('#crEditAdd').addEventListener('click',()=>{
+      const typeEl=modal.querySelector('input[name="crEditType"]:checked');
+      const type=typeEl?typeEl.value:'holiday';
+      if(type==='time'){
+        const start=parseInt(startSel.value), end=parseInt(endSel.value);
+        if(start>=end){toast('退勤は出勤より後にしてください');return;}
+        _crPending[ds]={type:'time',start,end,wk,label};
+      } else {
+        _crPending[ds]={type:'holiday',wk,label};
+      }
+      modal.remove();
+      renderCalendar();
+      updateCrSubmitCard();
+      toast(label+' を変更予定に追加しました');
+    });
+  }
+
+  /* 変更リクエスト提出カードの表示更新 */
+  function updateCrSubmitCard(){
+    const card=document.getElementById('crSubmitCard');
+    const cnt=document.getElementById('crSubmitCount');
+    const n=Object.keys(_crPending).length;
+    if(card) card.style.display = n>0 ? '' : 'none';
+    if(cnt) cnt.textContent = n;
+  }
+
+  /* 変更リクエストを一括提出 */
+  async function submitPendingChangeRequests(){
+    const dsList=Object.keys(_crPending);
+    if(dsList.length===0){ toast('変更する日を選んでください'); return; }
+    // week別にまとめる
+    const byWk={};
+    dsList.forEach(ds=>{
+      const p=_crPending[ds];
+      if(!byWk[p.wk]) byWk[p.wk]={};
+      byWk[p.wk][ds] = p.type==='holiday' ? {type:'holiday'} : {type:'time',start:p.start,end:p.end};
+    });
+    let okWeeks=[];
+    for(const wk in byWk){
+      const r=Store.dispatch('REQUEST_CHANGE',{cast,wk,changes:byWk[wk]});
+      if(r&&r.error){ toast(errorMessage(r.error)); return; }
+      okWeeks.push(wk);
+    }
+    const count=dsList.length;
+    _crPending={};
+    render();
+    updateCrSubmitCard();
+    await _autoSave();
+    okWeeks.forEach(wk=>{
+      const crMsg = cast+'さんから変更リクエスト（'+weekLabel(wk)+'）';
+      GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'change', message:crMsg}).catch(()=>{});
+      GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
+        subject:'【サクラシフト】'+cast+'さんから変更リクエスト',
+        htmlBody:buildStaffMailHtml(cast, crMsg, '🔄 変更リクエスト')
+      }).catch(()=>{});
+    });
+    addMyNotif('my_change', `変更リクエストを送りました（${count}日分）`);
+    toast(`${count}日分の変更リクエストを送りました🙏`);
   }
 
   /* ============ 長期休暇申請 ============ */
@@ -2221,11 +2357,11 @@ const CastApp = (function(){
   }
 
   return {
-    init, applyByDow, applyToSelected, submitMonth,
+    init, applyByDow, applyToSelected, submitMonth, submitPendingChangeRequests, updateCrSubmitCard,
     clearSelection, changeMonth, sync, render,
     getViewYM:()=>viewYM, toast, openNotifTab,
     openMemoModal, saveMemo, setKanzen,
-    startVacationSelect, openCrDatePicker,
+    startVacationSelect,
     getCastName:()=>cast,
     getSelected:()=>selected,
     setSaveState,
@@ -2672,8 +2808,11 @@ document.getElementById('icsBtn').addEventListener('click',()=>{
     CastApp.toast('カレンダーファイルを保存しました📅');
   }catch(e){ CastApp.toast('エクスポートに失敗しました'); console.error(e); }
 });
-document.getElementById('crBtn').addEventListener('click',()=>CastApp.openCrDatePicker());
+// crBtn削除済み（確定済み日タップ方式に変更）
 document.getElementById('vacBtn').addEventListener('click',()=>CastApp.startVacationSelect());
+// 変更リクエスト一括提出
+const _crSubmitBtn=document.getElementById('crSubmitBtn');
+if(_crSubmitBtn) _crSubmitBtn.addEventListener('click',()=>CastApp.submitPendingChangeRequests());
 // 選択解除
 document.getElementById('selectClear').addEventListener('click',()=>CastApp.clearSelection());
 // 月移動
