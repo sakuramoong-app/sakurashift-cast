@@ -397,6 +397,15 @@
   .cr-type-row{display:flex;flex-direction:column;gap:10px;}
   .cr-type-label{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:700;padding:11px 14px;background:#F8FBF9;border-radius:12px;border:2px solid var(--line);cursor:pointer;}
   .cr-type-label input{width:18px;height:18px;accent-color:var(--mint-deep);}
+  .cr-day-row{border:2px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px;background:#F8FBF9;}
+  .cr-day-check{display:flex;align-items:center;gap:10px;cursor:pointer;}
+  .cr-day-check input{width:20px;height:20px;accent-color:var(--pink-deep);flex-shrink:0;}
+  .cr-day-label{font-size:13px;font-weight:700;color:var(--text);}
+  .cr-day-edit{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);}
+  .cr-mini-radio{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;margin-right:14px;cursor:pointer;}
+  .cr-mini-radio input{width:16px;height:16px;accent-color:var(--mint-deep);}
+  .cr-time-mini{display:flex;gap:8px;margin-top:10px;}
+  .cr-time-mini select{flex:1;padding:9px;}
   /* 完全終了 */
   .kanzen-label{display:flex;align-items:center;gap:2px;font-size:10px;font-weight:800;color:var(--text2);cursor:pointer;position:absolute;bottom:2px;left:2px;line-height:1;}
   .kanzen-label input{width:13px;height:13px;accent-color:var(--mint-deep);cursor:pointer;}
@@ -1656,6 +1665,7 @@ const CastApp = (function(){
       subject:'【サクラシフト】'+cast+'さんから長期休暇申請',
       htmlBody:buildStaffMailHtml(cast, vacMsg, '🏖 長期休暇申請')
     }).catch(()=>{});
+    addMyNotif('my_vacation', `長期休暇を申請しました（${start}〜${end}）`);
     toast('長期休暇を申請しました🌸 内勤からの連絡をお待ちください');
   }
 
@@ -1674,12 +1684,10 @@ const CastApp = (function(){
       const wk=weekKeyOf(ds);
       const w=Store.getWeek(cast,wk);
       if(!w||!w.shifts[ds]) continue;
-      // 確定済みの日付を収集（シフトあり・休日どちらも）
       if(w.status!=='confirmed'&&w.status!=='change_confirmed') continue;
       if(w.vacations&&w.vacations[ds]) continue;
       const dd=new Date(ds+'T12:00:00');
-      const shiftLabel = w.shifts[ds] ? fmtShift(w.shifts[ds].start,w.shifts[ds].end) : 'お休み';
-      candidates.push({ds, label:`${dd.getMonth()+1}/${dd.getDate()}(${dows[(dd.getDay()+6)%7]}) ${shiftLabel}`, wk, shift:w.shifts[ds]||null, cr:w.changeRequest&&w.changeRequest[ds]});
+      candidates.push({ds, dows:dows[(dd.getDay()+6)%7], md:`${dd.getMonth()+1}/${dd.getDate()}`, wk, shift:w.shifts[ds]||null, cr:w.changeRequest&&w.changeRequest[ds]});
     }
 
     if(!candidates.length){
@@ -1687,30 +1695,134 @@ const CastApp = (function(){
       return;
     }
 
+    // 各日の編集状態を保持
+    const editState = {}; // ds -> {selected, type, start, end}
+    candidates.forEach(c=>{
+      editState[c.ds] = { selected:false, type: c.shift?'holiday':'time',
+        start: c.shift?c.shift.start:18, end: c.shift?c.shift.end:24 };
+    });
+
     const modal = document.createElement('div');
     modal.id = 'crPickerModal';
+    const rowHtml = (c)=>{
+      const st = editState[c.ds];
+      const curLabel = c.shift ? fmtShift(c.shift.start,c.shift.end) : 'お休み';
+      return `<div class="cr-day-row" data-ds="${c.ds}">
+        <label class="cr-day-check">
+          <input type="checkbox" class="cr-day-cb" data-ds="${c.ds}" ${st.selected?'checked':''}>
+          <span class="cr-day-label">${c.md}(${c.dows}) <span style="color:#9CAAB5;font-weight:600">現在:${curLabel}</span>${c.cr?' <span style="color:#E65100">⚠️申請中</span>':''}</span>
+        </label>
+        <div class="cr-day-edit" data-ds="${c.ds}" style="display:${st.selected?'block':'none'}">
+          ${c.shift
+            ? `<label class="cr-mini-radio"><input type="radio" name="crtype_${c.ds}" value="holiday" ${st.type==='holiday'?'checked':''}> お休みに</label>
+               <label class="cr-mini-radio"><input type="radio" name="crtype_${c.ds}" value="time" ${st.type==='time'?'checked':''}> 時間変更</label>`
+            : `<label class="cr-mini-radio"><input type="radio" name="crtype_${c.ds}" value="time" checked> 出勤にする</label>`
+          }
+          <div class="cr-time-mini" data-ds="${c.ds}" style="display:${st.type==='time'?'flex':'none'}">
+            <select class="biz-sel cr-start" data-ds="${c.ds}"></select>
+            <span style="align-self:center">〜</span>
+            <select class="biz-sel cr-end" data-ds="${c.ds}"></select>
+          </div>
+        </div>
+      </div>`;
+    };
+
     modal.innerHTML = `
       <div class="memo-modal-bg"></div>
-      <div class="memo-modal-box">
-        <div class="memo-modal-title">✏️ 変更リクエスト</div>
-        <div class="vac-label">変更したい日付を選んでください</div>
-        <select class="biz-sel" id="crPickerSel" style="width:100%;padding:11px;margin-top:8px;font-size:14px">
-          ${candidates.map(c=>`<option value="${c.ds}">${c.label}${c.cr?' ⚠️申請中':''}</option>`).join('')}
-        </select>
-        <div class="memo-modal-actions" style="margin-top:14px">
+      <div class="memo-modal-box" style="max-height:80vh;overflow-y:auto">
+        <div class="memo-modal-title">✏️ 変更リクエスト（複数日OK）</div>
+        <div class="vac-label" style="margin-bottom:8px">変更したい日にチェックを入れてください</div>
+        <div id="crDayList">${candidates.map(rowHtml).join('')}</div>
+        <div class="memo-modal-actions" style="margin-top:16px">
           <button class="memo-btn-clear" id="crPickerCancel">キャンセル</button>
-          <button class="memo-btn-save" id="crPickerNext">次へ</button>
+          <button class="memo-btn-save" id="crPickerSubmit">申請する</button>
         </div>
       </div>`;
     document.body.appendChild(modal);
+
+    // 時間セレクトを埋める
+    function fillTimeSelects(ds){
+      const sSel = modal.querySelector(`.cr-start[data-ds="${ds}"]`);
+      const eSel = modal.querySelector(`.cr-end[data-ds="${ds}"]`);
+      if(!sSel||!eSel) return;
+      const st = editState[ds];
+      sSel.innerHTML=''; eSel.innerHTML='';
+      for(let h=12;h<=28;h++){const lbl=h>=25?(h-24)+'(翌)':String(h);sSel.innerHTML+=`<option value="${h}">${lbl}時</option>`;}
+      for(let h=13;h<=29;h++){const lbl=h>=25?(h-24)+'(翌)':String(h);eSel.innerHTML+=`<option value="${h}">${lbl}時</option>`;}
+      sSel.value=st.start; eSel.value=st.end;
+    }
+    candidates.forEach(c=>fillTimeSelects(c.ds));
+
+    // チェックボックス
+    modal.querySelectorAll('.cr-day-cb').forEach(cb=>{
+      cb.addEventListener('change',()=>{
+        const ds=cb.dataset.ds;
+        editState[ds].selected=cb.checked;
+        modal.querySelector(`.cr-day-edit[data-ds="${ds}"]`).style.display=cb.checked?'block':'none';
+      });
+    });
+    // ラジオ（お休み/時間変更）
+    modal.querySelectorAll('input[type="radio"]').forEach(r=>{
+      r.addEventListener('change',()=>{
+        const ds=r.name.replace('crtype_','');
+        editState[ds].type=r.value;
+        const timeEl=modal.querySelector(`.cr-time-mini[data-ds="${ds}"]`);
+        if(timeEl) timeEl.style.display=r.value==='time'?'flex':'none';
+      });
+    });
+    // 時間変更
+    modal.querySelectorAll('.cr-start').forEach(s=>s.addEventListener('change',()=>{editState[s.dataset.ds].start=parseInt(s.value);}));
+    modal.querySelectorAll('.cr-end').forEach(s=>s.addEventListener('change',()=>{editState[s.dataset.ds].end=parseInt(s.value);}));
+
     modal.querySelector('.memo-modal-bg').addEventListener('click',()=>modal.remove());
     modal.querySelector('#crPickerCancel').addEventListener('click',()=>modal.remove());
-    modal.querySelector('#crPickerNext').addEventListener('click',()=>{
-      const ds=modal.querySelector('#crPickerSel').value;
-      const c=candidates.find(x=>x.ds===ds);
-      modal.remove();
-      if(c) openChangeRequestModal(c.ds,{shift:c.shift,cr:c.cr,status:'confirmed',locked:true,vacation:null,vacationReq:null,dayMemo:'',kanzen:false});
+    modal.querySelector('#crPickerSubmit').addEventListener('click',()=>submitMultiChangeRequest(editState, candidates, modal));
+  }
+
+  async function submitMultiChangeRequest(editState, candidates, modal){
+    // 選択された日をweekごとにまとめる
+    const selected = candidates.filter(c=>editState[c.ds].selected);
+    if(selected.length===0){ toast('変更する日を選んでください'); return; }
+
+    // バリデーション
+    for(const c of selected){
+      const st=editState[c.ds];
+      if(st.type==='time' && st.start>=st.end){
+        toast(`${c.md}: 退勤は出勤より後にしてください`); return;
+      }
+    }
+
+    // week別にchangesをまとめる
+    const byWk={};
+    selected.forEach(c=>{
+      const st=editState[c.ds];
+      if(!byWk[c.wk]) byWk[c.wk]={};
+      if(st.type==='holiday'){ byWk[c.wk][c.ds]={type:'holiday'}; }
+      else { byWk[c.wk][c.ds]={type:'time',start:st.start,end:st.end}; }
     });
+
+    // weekごとにdispatch
+    let okWeeks=[];
+    for(const wk in byWk){
+      const r=Store.dispatch('REQUEST_CHANGE',{cast,wk,changes:byWk[wk]});
+      if(r&&r.error){ toast(errorMessage(r.error)); return; }
+      okWeeks.push(wk);
+    }
+    modal.remove();
+    render();
+    await _autoSave();
+
+    // 内勤へ通知（週ごと）
+    okWeeks.forEach(wk=>{
+      const crMsg = cast+'さんから変更リクエスト（'+weekLabel(wk)+'）';
+      GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'change', message:crMsg}).catch(()=>{});
+      GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
+        subject:'【サクラシフト】'+cast+'さんから変更リクエスト',
+        htmlBody:buildStaffMailHtml(cast, crMsg, '🔄 変更リクエスト')
+      }).catch(()=>{});
+    });
+    addMyNotif('my_change', `変更リクエストを送りました（${selected.length}日分）`);
+    toast(`${selected.length}日分の変更リクエストを送りました🙏`);
   }
   function openChangeRequestModal(ds, info){
     const existing = document.getElementById('crModal');
@@ -1793,6 +1905,7 @@ const CastApp = (function(){
       subject:'【サクラシフト】'+cast+'さんから変更リクエスト',
       htmlBody:buildStaffMailHtml(cast, crMsg, '🔄 変更リクエスト')
     }).catch(()=>{});
+    addMyNotif('my_change', `変更リクエストを送りました（${weekLabel(wk)}）`);
     toast('変更リクエストを送りました🙏 内勤からの連絡をお待ちください');
   }
 
@@ -1904,6 +2017,7 @@ const CastApp = (function(){
     // ★ 内勤への通知（シフト提出）
     if(submitted > 0 && ok){
       const submitMsg = cast+'さんがシフトを提出しました（'+viewYM+'）';
+      addMyNotif('my_submit', `シフトを提出しました（${viewYM.replace('-','年')}月）`);
       GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'submit', message:submitMsg}).catch(()=>{});
       GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
         subject:'【サクラシフト】'+cast+'さんがシフトを提出しました',
@@ -2047,9 +2161,15 @@ const CastApp = (function(){
     const notifMeta = {
       done:   {icon:'🎉', label:'シフト確定'},
       change: {icon:'🔄', label:'変更申請受理'},
+      change_done:{icon:'🔄', label:'変更確定'},
       reject: {icon:'🙏', label:'変更リクエスト却下'},
+      vacation_accepted:{icon:'🏖', label:'長期休暇承認'},
+      vacation_rejected:{icon:'🙏', label:'長期休暇却下'},
       notice: {icon:'📢', label:'お知らせ'},
       confirm:{icon:'✅', label:'確認'},
+      my_submit:{icon:'📤', label:'シフト提出'},
+      my_change:{icon:'✏️', label:'変更リクエスト送信'},
+      my_vacation:{icon:'🏖', label:'長期休暇申請'},
     };
 
     // 最新3件だけ表示（多すぎると読みにくい）
@@ -2159,14 +2279,38 @@ const notifMeta={
   confirm:{icon:'✅',cls:'ni-confirm'},
   done:{icon:'🎉',cls:'ni-done'},
   change:{icon:'🔄',cls:'ni-change'},
+  change_done:{icon:'🔄',cls:'ni-done'},
   reject:{icon:'🙏',cls:'ni-reject'},
+  vacation_accepted:{icon:'🏖',cls:'ni-confirm'},
+  vacation_rejected:{icon:'🙏',cls:'ni-reject'},
   notice:{icon:'📢',cls:'ni-notice'},
+  my_submit:{icon:'📤',cls:'ni-confirm'},
+  my_change:{icon:'✏️',cls:'ni-change'},
+  my_vacation:{icon:'🏖',cls:'ni-notice'},
 };
 function fmtNotifTime(iso){
   if(!iso) return '';
   const d=new Date(iso);
   if(isNaN(d)) return iso;
   return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+// === 自分のアクション履歴（ローカル保存） ===
+function _myNotifKey(castName){ return 'sg_my_notif_'+castName; }
+function _getMyNotifs(castName){
+  try{ return JSON.parse(localStorage.getItem(_myNotifKey(castName))||'[]'); }
+  catch(e){ return []; }
+}
+function addMyNotif(type, message){
+  const castName = (typeof CastApp!=='undefined' && CastApp.getCastName && CastApp.getCastName()) || sessionStorage.getItem('castName') || '';
+  if(!castName){ console.warn('addMyNotif: castName不明'); return; }
+  try{
+    const list = _getMyNotifs(castName);
+    list.push({ id:'my'+Date.now(), type, message, createdAt:new Date().toISOString(), read:true });
+    // 直近50件まで保持
+    while(list.length>50) list.shift();
+    localStorage.setItem(_myNotifKey(castName), JSON.stringify(list));
+  }catch(e){ console.warn('ローカル通知保存エラー',e); }
 }
 
 let _lastNotifs = [];  // renderNotifsで取得した最新通知を保持
@@ -2177,6 +2321,9 @@ async function renderNotifs(){
   list.innerHTML='<div class="notif-empty"><span class="spinner"></span>読み込み中…</div>';
   let notifs=[];
   try{ notifs = await CastApp.getNotifications(); }catch(e){ notifs=[]; }
+  // 自分のアクション履歴（ローカル）をマージ
+  const myNotifs = _getMyNotifs(CastApp.getCastName());
+  notifs = notifs.concat(myNotifs);
   _lastNotifs = notifs;
   notifs.sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
 
