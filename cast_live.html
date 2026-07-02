@@ -1379,13 +1379,14 @@ const GasBridge = {
    ============================================================ */
 const CastApp = (function(){
   let cast = 'あや';
-  let viewYM = (function(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); })();
+  let viewYM = (function(){ const wk=weekKeyOf(ymd(new Date())); return wk.slice(0,7); })();  // 今日が属する週の月（今日が必ず表示される）
   let selected = new Set();
   let _crPending = {};  // 変更リクエストの保留中編集 { ds: {type, start, end, wk, label} }
 
   async function init(castName){
     cast = castName;
     Store.dispatch('SET_USER',{user:{type:'cast',name:cast}});
+    updateMonthLabel();
     const grid=document.getElementById('grid');
     if(grid) grid.innerHTML='<div class="cal-loading"><span class="spinner"></span>🌸 読み込み中…</div>';
     setSaveState('loading');
@@ -2238,14 +2239,29 @@ const CastApp = (function(){
 
   function clearSelection(){ selected.clear(); renderCalendar(); updateSelectedCount(); }
 
+  /* 月ラベル更新（週範囲併記） */
+  function updateMonthLabel(){
+    const lbl=document.getElementById('monthLabel');
+    if(!lbl) return;
+    const [y,m]=viewYM.split('-').map(Number);
+    const wks=weeksInMonth(viewYM);
+    let rangeText='';
+    if(wks.length>0){
+      const firstDs=weekDates(wks[0])[0];
+      const lastDs=weekDates(wks[wks.length-1])[6];
+      const f=(ds)=>{const d=new Date(ds+'T12:00:00');return `${d.getMonth()+1}/${d.getDate()}`;};
+      rangeText=`${f(firstDs)} 〜 ${f(lastDs)}`;
+    }
+    lbl.innerHTML=`${y}年 ${m}月<div style="font-size:10px;font-weight:700;color:var(--text2);line-height:1.2">${rangeText}</div>`;
+  }
+
   async function changeMonth(delta){
     let [y,m]=viewYM.split('-').map(Number);
     m+=delta;
     if(m<1){m=12;y--;} if(m>12){m=1;y++;}
     viewYM=`${y}-${String(m).padStart(2,'0')}`;
     selected.clear();
-    const lbl=document.getElementById('monthLabel');
-    if(lbl)lbl.textContent=`${y}年 ${m}月`;
+    updateMonthLabel();
     // ① グリッドを即座にスピナーに切り替え
     const grid=document.getElementById('grid');
     if(grid) grid.innerHTML='<div class="cal-loading"><span class="spinner"></span>読み込み中…</div>';
