@@ -103,7 +103,6 @@
   .cal-head .sat{color:#7FB8E8;}
   .cal-head .sun{color:var(--pink-deep);}
   .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;}
-  .cell.other-month{opacity:.55;}
   .cell.other-month::after{content:'翌月';position:absolute;top:1px;right:3px;font-size:7px;color:#FF9EC0;font-weight:800;}
   .cal-loading{grid-column:1/-1;text-align:center;padding:50px 0;color:var(--mint-deep);font-weight:800;font-size:14px;}
   .cell{aspect-ratio:1/1.5;border-radius:14px;background:#F8FBF9;border:2px solid transparent;padding:6px 3px 18px;cursor:pointer;display:flex;flex-direction:column;align-items:center;transition:transform .1s;position:relative;overflow:hidden;}
@@ -2879,6 +2878,19 @@ document.querySelectorAll('.month-nav .arrow')[0].addEventListener('click',()=>C
 document.querySelectorAll('.month-nav .arrow')[1].addEventListener('click',()=>CastApp.changeMonth(1));
 // 提出
 document.querySelector('.big-submit').addEventListener('click',async ()=>{
+  // 月マタギ週が含まれる場合は提出範囲を確認
+  const ym=CastApp.getViewYM();
+  const wks=weeksInMonth(ym);
+  if(wks.length>0){
+    const lastWkDates=weekDates(wks[wks.length-1]);
+    const lastDs=lastWkDates[6];
+    if(lastDs.slice(0,7)!==ym){
+      // 最終週が翌月にはみ出している → 提出範囲を明示して確認
+      const f=(ds)=>{const d=new Date(ds+'T12:00:00');return `${d.getMonth()+1}/${d.getDate()}`;};
+      const firstDs=weekDates(wks[0])[0];
+      if(!confirm(`📅 この月の提出範囲は ${f(firstDs)}〜${f(lastDs)} です。\n（月をまたぐ週は日曜日まで含めて提出します）\n\n${f(lastDs)}までのシフトを入力しましたか？`)) return;
+    }
+  }
   const n=await CastApp.submitMonth();
   if(n>0)CastApp.toast('🎉 '+n+'週分を提出しました。おつかれさまでした✨');
   else CastApp.toast('提出できる新しいシフトがありません🤔');
