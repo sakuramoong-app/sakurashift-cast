@@ -88,6 +88,7 @@
   .month-nav{display:flex;align-items:center;justify-content:space-between;background:#fff;border-radius:18px;padding:9px 14px;margin-bottom:12px;box-shadow:0 3px 14px var(--shadow);border:2px solid var(--line);}
   .month-nav .arrow{width:40px;height:40px;border-radius:14px;border:none;background:linear-gradient(135deg,#F2FAF6,#EAF7F0);color:var(--mint-deep);font-size:20px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;}
   .month-nav .arrow:active{transform:scale(.9);}
+  .month-info-bar{background:#FFF9E8;border:2px solid #FFE9A8;border-radius:12px;padding:9px 14px;margin-bottom:12px;font-size:12px;font-weight:700;color:#B8860B;line-height:1.6;}
   .month-label{font-size:18px;font-weight:800;color:var(--text);letter-spacing:.03em;}
   .cr-bar{background:linear-gradient(120deg,#FFF0F6,#FFE9F2);border:2px solid var(--pink);border-radius:18px;padding:13px 15px;margin-bottom:12px;}
   .cr-bar-title{font-size:13px;font-weight:800;color:var(--pink-deep);margin-bottom:9px;}
@@ -257,6 +258,7 @@
   <div class="month-nav">
     <button class="arrow">‹</button><div class="month-label" id="monthLabel">2026年 6月</div><button class="arrow">›</button>
   </div>
+  <div class="month-info-bar" id="monthInfoBar" style="display:none"></div>
   <div class="select-info" id="selectInfo">
     <span id="selectCount">0</span>日 選択中　<button class="select-clear" id="selectClear">選択解除</button>
     <button id="resetShiftBtn" style="display:none;margin-left:4px;padding:5px 12px;border:2px solid #FFB9B9;border-radius:99px;background:#FFF5F5;color:#E05260;font-weight:800;font-size:12px;cursor:pointer;font-family:inherit;">🗑 シフトを消す</button>
@@ -270,7 +272,7 @@
       <span><i class="dot" style="background:#fff;border:2px solid var(--lemon)"></i>提出済み</span>
       <span><i class="dot" style="background:#fff;border:2px solid var(--mint-deep)"></i>確定</span>
       <span><i class="dot" style="background:#fff;border:2px solid var(--pink-deep)"></i>変更申請中</span>
-      <span class="legend-hint">📝 シフト入力済みの日を長押しで備考を追加できます</span>
+      <span class="legend-hint">📝 シフト入力済みの日の中央〜下部を長押しで備考を追加できます</span>
       <span class="legend-hint">📝 提出済み・確定済みシフトの変更は、変更したい日付をタップ（複数選択可）後、変更リクエスト提出ボタンを押してください</span>
     </div>
   </div>
@@ -335,7 +337,9 @@
   <div class="tool-card" id="crSubmitCard" style="display:none">
     <div class="tool-title">✏️ 変更リクエスト</div>
     <div class="tool-hint" id="crSubmitHint">変更したい確定済みの日付をタップして編集してください</div>
-    <button class="cr-bar-btn" id="crSubmitBtn" style="margin-top:8px">📤 変更リクエストを提出（<span id="crSubmitCount">0</span>日）</button>
+    <div class="vac-label" style="margin-top:10px">📝 変更理由（必須）</div>
+    <textarea id="crReasonInput" placeholder="例：体調不良のため、予定が入ったため など" style="width:100%;min-height:60px;padding:10px 12px;border-radius:12px;border:2px solid var(--line);font-family:inherit;font-size:13px;color:var(--text);background:#F8FBF9;resize:vertical;margin-top:4px;"></textarea>
+    <button class="cr-bar-btn" id="crSubmitBtn" style="margin-top:10px">📤 変更リクエストを提出（<span id="crSubmitCount">0</span>日）</button>
   </div>
 
   <div class="tool-card">
@@ -1475,6 +1479,25 @@ const CastApp = (function(){
     // A方式：この月に属する週（月曜基準）の全日付を並べる
     // → 6月なら 6/1(月)〜7/5(日)、7月なら 7/6(月)〜 となる
     const wks = weeksInMonth(viewYM);
+
+    // 案内バー：月初の数日が前月の週に含まれる場合に表示
+    const infoBar = document.getElementById('monthInfoBar');
+    if(infoBar){
+      const [vy,vm] = viewYM.split('-').map(Number);
+      const firstDs = `${viewYM}-01`;
+      const firstWk = weekKeyOf(firstDs);
+      if(firstWk.slice(0,7) !== viewYM){
+        // 月初が前月の週に属している → 案内表示
+        const wkDs = weekDates(firstWk);
+        const lastOfPrevWeek = wkDs[6];
+        const f=(ds)=>{ const dd=new Date(ds+'T12:00:00'); return `${dd.getMonth()+1}/${dd.getDate()}`; };
+        const prevM = vm===1 ? 12 : vm-1;
+        infoBar.innerHTML = `📌 ${f(firstDs)}〜${f(lastOfPrevWeek)}は${prevM}月のカレンダーに含まれます（月をまたぐ週のため）`;
+        infoBar.style.display = '';
+      } else {
+        infoBar.style.display = 'none';
+      }
+    }
     const allDates = [];
     wks.forEach(wk => weekDates(wk).forEach(ds => allDates.push(ds)));
 
@@ -1682,12 +1705,16 @@ const CastApp = (function(){
   async function submitPendingChangeRequests(){
     const dsList=Object.keys(_crPending);
     if(dsList.length===0){ toast('変更する日を選んでください'); return; }
+    // 理由は必須
+    const reasonEl=document.getElementById('crReasonInput');
+    const reason=(reasonEl&&reasonEl.value||'').trim();
+    if(!reason){ toast('変更理由を入力してください📝'); if(reasonEl)reasonEl.focus(); return; }
     // week別にまとめる
     const byWk={};
     dsList.forEach(ds=>{
       const p=_crPending[ds];
       if(!byWk[p.wk]) byWk[p.wk]={};
-      byWk[p.wk][ds] = p.type==='holiday' ? {type:'holiday'} : {type:'time',start:p.start,end:p.end};
+      byWk[p.wk][ds] = p.type==='holiday' ? {type:'holiday',reason} : {type:'time',start:p.start,end:p.end,reason};
     });
     let okWeeks=[];
     for(const wk in byWk){
@@ -1697,11 +1724,12 @@ const CastApp = (function(){
     }
     const count=dsList.length;
     _crPending={};
+    if(reasonEl) reasonEl.value='';
     render();
     updateCrSubmitCard();
     await _autoSave();
     okWeeks.forEach(wk=>{
-      const crMsg = cast+'さんがシフト変更申請をしました';
+      const crMsg = cast+'さんがシフト変更申請をしました（理由：'+reason+'）';
       GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'change', message:crMsg}).catch(()=>{});
       GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
         subject:'【サクラシフト】'+cast+'さんがシフト変更申請をしました',
@@ -2133,13 +2161,18 @@ const CastApp = (function(){
   async function submitMonth(){
     const weeks = weeksInMonth(viewYM);
     let submitted=0;
+    const submittedDates=[];
     weeks.forEach(wk=>{
       const w = Store.getWeek(cast, wk);
       // unsubmitted（新規）またはwaiting（再提出）でシフトがある週を提出
       const canSubmit = w && (w.status==='unsubmitted'||w.status==='waiting') && Object.keys(w.shifts).length>0;
       if(canSubmit){
         const r=Store.dispatch('SUBMIT_WEEK',{cast, wk});
-        if(r && r.ok) submitted++;
+        if(r && r.ok){
+          submitted++;
+          // この週のシフト入力日を集める
+          Object.keys(w.shifts).forEach(ds=>{ if(w.shifts[ds]&&w.shifts[ds].start!=null) submittedDates.push(ds); });
+        }
       }
     });
     render();
@@ -2149,8 +2182,9 @@ const CastApp = (function(){
     render();
     // ★ 内勤への通知（シフト提出）
     if(submitted > 0 && ok){
-      const submitMsg = cast+'さんがシフトを提出しました';
-      addMyNotif('my_submit', 'シフト提出が完了しました');
+      const rangeLabel = _dateRangeLabel(submittedDates);
+      const submitMsg = cast+'さんがシフトを提出しました'+(rangeLabel?'（'+rangeLabel+'）':'');
+      addMyNotif('my_submit', 'シフト提出が完了しました'+(rangeLabel?'（'+rangeLabel+'）':''));
       GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'submit', message:submitMsg}).catch(()=>{});
       GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
         subject:'【サクラシフト】'+cast+'さんがシフトを提出しました',
@@ -2158,6 +2192,15 @@ const CastApp = (function(){
       }).catch(()=>{});
     }
     return submitted;
+  }
+
+  /* 日付配列 → "6/1〜6/30" のような範囲ラベル */
+  function _dateRangeLabel(dsArr){
+    if(!dsArr||dsArr.length===0) return '';
+    const sorted=[...dsArr].sort();
+    const f=(ds)=>{ const d=new Date(ds+'T12:00:00'); return `${d.getMonth()+1}/${d.getDate()}`; };
+    if(sorted.length===1) return f(sorted[0]);
+    return f(sorted[0])+'〜'+f(sorted[sorted.length-1]);
   }
 
   let _saveState = 'saved';
@@ -2697,9 +2740,14 @@ function generateShiftCanvas(){
   const startCol = firstDow===0?6:firstDow-1;
   const daysInMon = new Date(year,mon,0).getDate();
 
-  // シフトデータ収集
+  // シフトデータ収集（月の全日が属する週を全部集める：月マタギ週も含む）
   const wkCache = {};
-  weeksInMonth(ym).forEach(wk=>{
+  const wkSet = new Set();
+  for(let d=1; d<=daysInMon; d++){
+    const ds = `${ym}-${String(d).padStart(2,'0')}`;
+    wkSet.add(weekKeyOf(ds));
+  }
+  wkSet.forEach(wk=>{
     const w = Store.getWeek(castName,wk);
     if(w) wkCache[wk]=w;
   });
