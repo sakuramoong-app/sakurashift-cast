@@ -273,6 +273,7 @@
       <span><i class="dot" style="background:#fff;border:2px solid var(--pink-deep)"></i>変更申請中</span>
       <span class="legend-hint">📝 シフト入力済みの日の中央〜下部を長押しで備考を追加できます</span>
       <span class="legend-hint">📝 提出済み・確定済みシフトの変更は、変更したい日付をタップ（複数選択可）後、変更リクエスト提出ボタンを押してください</span>
+      <span class="legend-hint">🙋 マーク：出勤募集中の日です。タップすると募集時間帯の詳細が見れます</span>
     </div>
   </div>
   </div><!-- /tabCalendar -->
@@ -2935,13 +2936,19 @@ document.querySelector('.big-submit').addEventListener('click',async ()=>{
   const ym=CastApp.getViewYM();
   const wks=weeksInMonth(ym);
   if(wks.length>0){
-    const lastWkDates=weekDates(wks[wks.length-1]);
+    const lastWk=wks[wks.length-1];
+    const lastWkDates=weekDates(lastWk);
     const lastDs=lastWkDates[6];
     if(lastDs.slice(0,7)!==ym){
-      // 最終週が翌月にはみ出している → 提出範囲を明示して確認
-      const f=(ds)=>{const d=new Date(ds+'T12:00:00');return `${d.getMonth()+1}/${d.getDate()}`;};
-      const firstDs=weekDates(wks[0])[0];
-      if(!confirm(`📅 この月の提出範囲は ${f(firstDs)}〜${f(lastDs)} です。\n（月をまたぐ週は日曜日まで含めて提出します）\n\n${f(lastDs)}までのシフトを入力しましたか？`)) return;
+      const w=Store.getWeek(CastApp.getCastName(), lastWk);
+      const isSubmittable = w && (w.status==='unsubmitted'||w.status==='waiting') && Object.keys(w.shifts||{}).length>0;
+      const nextMonthDays = lastWkDates.filter(x=>x.slice(0,7)!==ym);
+      const hasNextMonthShift = w && w.shifts && nextMonthDays.some(x=>w.shifts[x]&&w.shifts[x].start!=null);
+      if(isSubmittable && hasNextMonthShift){
+        const f=(ds)=>{const d=new Date(ds+'T12:00:00');return `${d.getMonth()+1}/${d.getDate()}`;};
+        const firstDs=weekDates(wks[0])[0];
+        if(!confirm(`📅 この月の提出範囲は ${f(firstDs)}〜${f(lastDs)} です。\n（月をまたぐ週は日曜日まで含めて提出します）\n\n${f(lastDs)}までのシフトを入力しましたか？`)) return;
+      }
     }
   }
   const n=await CastApp.submitMonth();
