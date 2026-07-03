@@ -414,6 +414,13 @@
   .cr-time-mini select{flex:1;padding:9px;}
   .cell.cr-pending{border-color:#FF9800!important;background:#FFF3E0!important;}
   .cell.cr-pending::before{content:'変更';position:absolute;top:2px;left:3px;font-size:7px;color:#FF9800;font-weight:800;z-index:2;}
+  .recruit-dot{position:absolute;top:1px;right:2px;font-size:12px;z-index:3;line-height:1;}
+  .cell.has-recruit{box-shadow:inset 0 0 0 2px #FFD54F;}
+  .rd-list{display:flex;flex-direction:column;gap:8px;margin:10px 0;}
+  .rd-row{display:flex;justify-content:space-between;align-items:center;background:#FFF8E1;border:2px solid #FFE082;border-radius:12px;padding:10px 14px;}
+  .rd-time{font-size:14px;font-weight:800;color:#F57F17;}
+  .rd-short{font-size:13px;font-weight:800;color:#E65100;}
+  .rd-note{font-size:12px;color:var(--text2);line-height:1.6;margin-top:4px;}
   /* 完全終了 */
   .kanzen-label{display:flex;align-items:center;gap:3px;font-size:11px;font-weight:800;color:var(--text2);cursor:pointer;position:absolute;bottom:3px;left:50%;transform:translateX(-50%);line-height:1;background:rgba(255,255,255,.7);border-radius:6px;padding:1px 4px;}
   .kanzen-label input{width:13px;height:13px;accent-color:var(--mint-deep);cursor:pointer;}
@@ -1381,6 +1388,7 @@ const CastApp = (function(){
   let viewYM = (function(){ const wk=weekKeyOf(ymd(new Date())); return wk.slice(0,7); })();  // 今日が属する週の月（今日が必ず表示される）
   let selected = new Set();
   let _crPending = {};  // 変更リクエストの保留中編集 { ds: {type, start, end, wk, label} }
+  let _recruitByDate = {};  // 募集不足データ { ds: [blocks] }
 
   async function init(castName){
     cast = castName;
@@ -1403,8 +1411,12 @@ const CastApp = (function(){
     const readIds = (typeof _getReadIds === 'function') ? _getReadIds(cast) : new Set();
     const unread = notifs.filter(n=>!readIds.has(n.id));
     if(unread.length > 0) _showNotifPopup(unread);
-    // 募集バナー表示
-    if(recruitInfo && recruitInfo.shortages && recruitInfo.shortages.length>0) _showRecruitBanner(recruitInfo);
+    // 募集データを保持（カレンダーに🔴表示）
+    _recruitByDate = {};
+    if(recruitInfo && recruitInfo.shortages){
+      recruitInfo.shortages.forEach(s=>{ _recruitByDate[s.ds] = s.blocks||[]; });
+    }
+    renderCalendar();
   }
 
   function render(){
@@ -1558,7 +1570,18 @@ const CastApp = (function(){
       } else {
         inner = inner + `<span class="plus-mark">＋</span>`;
       }
+      // 募集不足マーク（今日以降のみ）
+      const _todayDs = ymd(new Date());
+      if(_recruitByDate[ds] && _recruitByDate[ds].length>0 && ds>=_todayDs){
+        inner += `<span class="recruit-dot" data-recruit-ds="${ds}" title="出勤募集中">🙋</span>`;
+        cell.classList.add('has-recruit');
+      }
       cell.innerHTML = inner;
+      // 募集ドットタップ → 詳細（セルクリックより優先）
+      const _rdot = cell.querySelector('.recruit-dot');
+      if(_rdot){
+        _rdot.addEventListener('click', (ev)=>{ ev.stopPropagation(); showRecruitDetail(ds); });
+      }
 
       // 長押しでメモモーダル（提出前・シフトあり・休暇でない）
       if(!info.locked && info.shift && !info.vacation){
@@ -1607,6 +1630,36 @@ const CastApp = (function(){
     else selected.add(ds);
     renderCalendar();
     updateSelectedCount();
+  }
+
+  /* 募集詳細ポップアップ */
+  function showRecruitDetail(ds){
+    const existing=document.getElementById('recruitDetailModal');
+    if(existing) existing.remove();
+    const blocks=_recruitByDate[ds]||[];
+    if(blocks.length===0) return;
+    const d=new Date(ds+'T12:00:00');
+    const dows=['月','火','水','木','金','土','日'];
+    const label=`${d.getMonth()+1}/${d.getDate()}(${dows[(d.getDay()+6)%7]})`;
+    const rows=blocks.map(b=>`
+      <div class="rd-row">
+        <span class="rd-time">${b.label}</span>
+        <span class="rd-short">あと${b.shortage}名募集中</span>
+      </div>`).join('');
+    const modal=document.createElement('div');
+    modal.id='recruitDetailModal';
+    modal.innerHTML=`
+      <div class="memo-modal-bg"></div>
+      <div class="memo-modal-box">
+        <div class="memo-modal-title">🙋 ${label} 出勤募集</div>
+        <div class="rd-list">${rows}</div>
+        <div class="rd-note">この時間帯に出勤できる方を募集しています。出勤できる場合はシフトを入力・提出してください🌸</div>
+        <div class="memo-modal-actions" style="margin-top:14px">
+          <button class="memo-btn-save" onclick="document.getElementById('recruitDetailModal').remove()">閉じる</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector('.memo-modal-bg').addEventListener('click',()=>modal.remove());
   }
 
   /* 確定済みの日タップ → 変更内容編集ポップアップ（_crPendingにためる） */
