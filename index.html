@@ -63,26 +63,7 @@ async function sha256(str){
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
-// キャスト一覧をGASから取得してハッシュマップを作成
-let castHashMap={};  // { 名前: pwHash }
-(async()=>{
-  try{
-    const qs=new URLSearchParams({token:TOKEN,action:'loadMaster',_t:Date.now()}).toString();
-    const res=await fetch(GAS_URL+'?'+qs);
-    const data=await res.json();
-    const master=data.master||{};
-    const castList=master.castList||[];
-    // 各キャストのPWをSHA-256でハッシュ化してマップに保存
-    await Promise.all(castList.map(async c=>{
-      if(c.pw){
-        castHashMap[c.name]=await sha256(String(c.pw));
-      }
-    }));
-  }catch(e){
-    console.warn('マスタ読込エラー',e);
-  }
-})();
-
+// ★ セキュリティ強化：全PWをブラウザに読み込まない。GAS側で照合する。
 async function doLogin(){
   const name=(document.getElementById('nameInput').value||'').trim();
   const pw=document.getElementById('pwInput').value;
@@ -94,24 +75,29 @@ async function doLogin(){
   if(!pw){err.textContent='パスワードを入力してください';err.style.display='block';return;}
 
   loading.style.display='block';
-  const hash=await sha256(pw);
-  loading.style.display='none';
+  try{
+    const hash=await sha256(pw);
+    // GAS側で照合（PWそのものは送らずハッシュを送る）
+    const qs=new URLSearchParams({token:TOKEN,action:'login',role:'cast',name:name,pwHash:hash,_t:Date.now()}).toString();
+    const res=await fetch(GAS_URL+'?'+qs);
+    const data=await res.json();
+    loading.style.display='none';
 
-  const expectedHash=castHashMap[name];
-  if(!expectedHash){
-    err.textContent='名前が見つかりません。内勤スタッフにご確認ください';
+    if(data.success){
+      sessionStorage.setItem('castName',name);
+      sessionStorage.setItem('castAuth','1');
+      sessionStorage.setItem('castSession',data.session);  // セッショントークン保存
+      location.href='cast_live.html?name='+encodeURIComponent(name);
+    }else{
+      err.textContent=data.message||'ログインに失敗しました';
+      err.style.display='block';
+      document.getElementById('pwInput').value='';
+      document.getElementById('pwInput').focus();
+    }
+  }catch(e){
+    loading.style.display='none';
+    err.textContent='通信エラーが発生しました。もう一度お試しください';
     err.style.display='block';
-    return;
-  }
-  if(hash===expectedHash){
-    sessionStorage.setItem('castName',name);
-    sessionStorage.setItem('castAuth','1');
-    location.href='cast_live.html?name='+encodeURIComponent(name);
-  }else{
-    err.textContent='パスワードが違います';
-    err.style.display='block';
-    document.getElementById('pwInput').value='';
-    document.getElementById('pwInput').focus();
   }
 }
 

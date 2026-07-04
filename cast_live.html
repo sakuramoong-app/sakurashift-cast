@@ -1317,18 +1317,52 @@ function buildStaffMailHtml(castName, message, tag){
 }
 
 const GasBridge = {
+  // ★ リトライ付きfetch（GAS応答の一時的な不安定さに対応）
+  async _fetchWithRetry(url, options, maxRetries=2){
+    let lastErr;
+    for(let attempt=0; attempt<=maxRetries; attempt++){
+      try{
+        // タイムアウト付き（15秒で諦めて再試行）
+        const ctrl = new AbortController();
+        const timer = setTimeout(()=>ctrl.abort(), 15000);
+        const res = await fetch(url, Object.assign({}, options, {signal:ctrl.signal}));
+        clearTimeout(timer);
+        const text = await res.text();
+        // GASが稀にHTMLエラーページを返す（404リダイレクト失敗）→ リトライ対象
+        if(text.trim().startsWith('<')){ throw new Error('GAS_HTML_ERROR'); }
+        return JSON.parse(text);
+      }catch(e){
+        lastErr = e;
+        if(attempt < maxRetries){
+          // リトライ中は「混雑中」メッセージに切り替え
+          try{
+            const cl=document.querySelector('.cal-loading');
+            if(cl) cl.innerHTML='<span class="spinner"></span>🌸 混雑中、再試行しています…';
+          }catch(_){}
+          await new Promise(r=>setTimeout(r, 1000*(attempt+1)));
+        }
+      }
+    }
+    throw lastErr;
+  },
   async _get(params){
-    const p = Object.assign({token:CONFIG.TOKEN, _t:Date.now()}, params);
+    const sess = sessionStorage.getItem('castSession') || '';
+    const p = Object.assign({token:CONFIG.TOKEN, session:sess, _t:Date.now()}, params);
     const qs = new URLSearchParams(p).toString();
-    const res = await fetch(CONFIG.GAS_URL + '?' + qs);
-    return res.json();
+    return this._fetchWithRetry(CONFIG.GAS_URL + '?' + qs, {});
   },
   async _post(params){
-    const body = new FormData();
-    for(const k in params) body.append(k, params[k]);
-    body.append('token', CONFIG.TOKEN);
-    const res = await fetch(CONFIG.GAS_URL, {method:'POST', body});
-    return res.json();
+    const buildBody = ()=>{
+      const body = new FormData();
+      for(const k in params) body.append(k, params[k]);
+      body.append('token', CONFIG.TOKEN);
+      body.append('session', sessionStorage.getItem('castSession') || '');
+      return body;
+    };
+    // saveWeek等の冪等操作はリトライ（同じデータで上書きなので二重でも安全）
+    const idempotent = params.action==='saveWeek' || params.action==='addNotification' || params.action==='sendEmail' || params.action==='saveCastEmail';
+    const retries = idempotent ? 2 : 0;
+    return this._fetchWithRetry(CONFIG.GAS_URL, {method:'POST', body:buildBody()}, retries);
   },
 
   async flushNow(){
@@ -2964,8 +2998,29 @@ const logoutBtn=document.getElementById('logoutBtn');
 if(logoutBtn)logoutBtn.addEventListener('click',()=>{
   sessionStorage.removeItem('castAuth');
   sessionStorage.removeItem('castName');
+  sessionStorage.removeItem('castSession');
   location.href='index.html';
 });
+
+// ★ 自動ログアウト（60分無操作で即ログアウト）
+(function(){
+  const IDLE_LIMIT = 60 * 60 * 1000; // 60分
+  let idleTimer = null;
+  function resetIdle(){
+    if(idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(()=>{
+      sessionStorage.removeItem('castAuth');
+      sessionStorage.removeItem('castName');
+      sessionStorage.removeItem('castSession');
+      alert('しばらく操作がなかったため、自動ログアウトしました。');
+      location.href='index.html';
+    }, IDLE_LIMIT);
+  }
+  ['click','keydown','touchstart','scroll'].forEach(ev=>{
+    document.addEventListener(ev, resetIdle, {passive:true});
+  });
+  resetIdle();
+})();
 
 // URLパラメータ or sessionStorageからキャスト名取得
 const _urlParams=new URLSearchParams(location.search);
@@ -2984,6 +3039,7 @@ async function saveCastEmail(){
   try{
     const body=new FormData();
     body.append('token','sakura2025shift');
+    body.append('session',sessionStorage.getItem('castSession')||'');
     body.append('action','saveCastEmail');
     body.append('castName',castName);
     body.append('email',email);
@@ -3004,15 +3060,14 @@ const _nameEl2 = document.getElementById('helloUserName');
 if(_nameEl1) _nameEl1.textContent = _castNameFromUrl;
 if(_nameEl2) _nameEl2.textContent = _castNameFromUrl;
 
-// 保存済みメールアドレスを入力欄に反映
+// 保存済みメールアドレスを入力欄に反映（専用アクションで自分の分のみ取得）
 (async()=>{
   try{
-    const res=await fetch('https://script.google.com/macros/s/AKfycbyvlg5JbvPsqxkdvztwRXYBqPkvWjknicwfm2ksTlIxIQ-7N1zd72cn09c6oSNIkIxw/exec?token=sakura2025shift&action=loadMaster&_t='+Date.now());
+    const sess=sessionStorage.getItem('castSession')||'';
+    const res=await fetch('https://script.google.com/macros/s/AKfycbyvlg5JbvPsqxkdvztwRXYBqPkvWjknicwfm2ksTlIxIQ-7N1zd72cn09c6oSNIkIxw/exec?token=sakura2025shift&action=getMyEmail&session='+encodeURIComponent(sess)+'&_t='+Date.now());
     const d=await res.json();
-    const emails=(d.master&&d.master.settings&&d.master.settings.castEmails)||{};
-    const myEmail=emails[_castNameFromUrl];
     const input=document.getElementById('castEmailInput');
-    if(input&&myEmail) input.value=myEmail;
+    if(input&&d.email) input.value=d.email;
   }catch(e){ console.warn('メールアドレス読込エラー',e); }
 })();
 
