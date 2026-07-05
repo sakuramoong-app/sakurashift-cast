@@ -336,10 +336,9 @@
 
   <div class="tool-card" id="crSubmitCard" style="display:none">
     <div class="tool-title">✏️ 変更リクエスト</div>
-    <div class="tool-hint" id="crSubmitHint">変更したい確定済みの日付をタップして編集してください</div>
+    <div class="tool-hint">変更したい確定済みの日付をタップして編集してください。下の「変更リクエストを提出」ボタンから送信できます。</div>
     <div class="vac-label" style="margin-top:10px">📝 変更理由（必須）</div>
     <textarea id="crReasonInput" placeholder="例：体調不良のため、予定が入ったため など" style="width:100%;min-height:60px;padding:10px 12px;border-radius:12px;border:2px solid var(--line);font-family:inherit;font-size:13px;color:var(--text);background:#F8FBF9;resize:vertical;margin-top:4px;"></textarea>
-    <button class="cr-bar-btn" id="crSubmitBtn" style="margin-top:10px">📤 変更リクエストを提出（<span id="crSubmitCount">0</span>日）</button>
   </div>
 
   <div class="tool-card">
@@ -357,7 +356,13 @@
 
 <div class="save-state-bar" id="saveState">✅ 保存済み</div>
 <div class="submit-bar" id="submitBar">
-  <button class="btn btn-primary big-submit">📤 この月のシフトを提出する</button>
+  <button class="btn btn-primary big-submit" id="shiftSubmitBtn">📤 この月のシフトを提出する</button>
+  <button class="btn btn-primary big-submit" id="crSubmitBtn" style="display:none">📤 変更リクエストを提出（<span id="crSubmitCount">0</span>日）</button>
+<div id="blockingOverlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(255,255,255,.85);backdrop-filter:blur(2px);align-items:center;justify-content:center;flex-direction:column;">
+  <div class="spinner" style="width:48px;height:48px;border-width:4px;"></div>
+  <div id="blockingMsg" style="margin-top:16px;font-size:15px;font-weight:800;color:var(--pink-deep);">保存中…</div>
+  <div style="margin-top:6px;font-size:12px;color:var(--text2);">閉じずにお待ちください🌸</div>
+</div>
 </div>
 
 <style>
@@ -1461,8 +1466,10 @@ const CastApp = (function(){
   }
 
   function updateSubmitBtn(){
-    const btn = document.querySelector('.big-submit');
+    const btn = document.getElementById('shiftSubmitBtn');
     if(!btn) return;
+    // 変更リクエスト編集中はシフト提出ボタンを触らない（updateCrSubmitCardが制御）
+    if(Object.keys(_crPending).length>0) return;
     const weeks = weeksInMonth(viewYM);
 
     // シフト入力済み＆未提出の週があるか
@@ -1787,6 +1794,20 @@ const CastApp = (function(){
     const n=Object.keys(_crPending).length;
     if(card) card.style.display = n>0 ? '' : 'none';
     if(cnt) cnt.textContent = n;
+    // ★ 下部の固定ボタンを切り替え：変更予定が1日以上なら変更リクエスト提出を主役に
+    const shiftBtn=document.getElementById('shiftSubmitBtn');
+    const crBtn=document.getElementById('crSubmitBtn');
+    if(n>0){
+      // 変更リクエストモード：変更提出ボタンを表示・光らせる／シフト提出は隠す
+      if(crBtn){ crBtn.style.display=''; crBtn.classList.add('needs-submit'); }
+      if(shiftBtn){ shiftBtn.style.display='none'; shiftBtn.classList.remove('needs-submit'); }
+    } else {
+      // 通常モード：シフト提出ボタンに戻す
+      if(crBtn){ crBtn.style.display='none'; crBtn.classList.remove('needs-submit'); }
+      if(shiftBtn){ shiftBtn.style.display=''; }
+      // シフト提出ボタンの光り具合はupdateSubmitButton()が別途制御
+      if(typeof updateSubmitBtn==='function') updateSubmitBtn();
+    }
   }
 
   /* 変更リクエストを一括提出 */
@@ -2108,7 +2129,7 @@ const CastApp = (function(){
         </div>
         <div class="memo-modal-actions" style="margin-top:14px">
           <button class="memo-btn-clear" id="crCancelBtn">キャンセル</button>
-          <button class="memo-btn-save" id="crSubmitBtn">申請する</button>
+          <button class="memo-btn-save" id="crModalSubmitBtn">申請する</button>
         </div>
       </div>`;
     document.body.appendChild(modal);
@@ -2126,7 +2147,7 @@ const CastApp = (function(){
     });
     modal.querySelector('.memo-modal-bg').addEventListener('click',()=>modal.remove());
     modal.querySelector('#crCancelBtn').addEventListener('click',()=>modal.remove());
-    modal.querySelector('#crSubmitBtn').addEventListener('click',()=>submitChangeRequest(ds,info,modal));
+    modal.querySelector('#crModalSubmitBtn').addEventListener('click',()=>submitChangeRequest(ds,info,modal));
   }
 
   async function submitChangeRequest(ds, info, modal){
@@ -2958,14 +2979,23 @@ document.getElementById('icsBtn').addEventListener('click',()=>{
 document.getElementById('vacBtn').addEventListener('click',()=>CastApp.startVacationSelect());
 // 変更リクエスト一括提出
 const _crSubmitBtn=document.getElementById('crSubmitBtn');
-if(_crSubmitBtn) _crSubmitBtn.addEventListener('click',()=>CastApp.submitPendingChangeRequests());
+if(_crSubmitBtn) _crSubmitBtn.addEventListener('click',async ()=>{
+  const overlay=document.getElementById('blockingOverlay');
+  const bmsg=document.getElementById('blockingMsg');
+  if(overlay){ if(bmsg)bmsg.textContent='変更リクエストを送信中…'; overlay.style.display='flex'; }
+  try{
+    await CastApp.submitPendingChangeRequests();
+  } finally {
+    if(overlay) overlay.style.display='none';
+  }
+});
 // 選択解除
 document.getElementById('selectClear').addEventListener('click',()=>CastApp.clearSelection());
 // 月移動
 document.querySelectorAll('.month-nav .arrow')[0].addEventListener('click',()=>CastApp.changeMonth(-1));
 document.querySelectorAll('.month-nav .arrow')[1].addEventListener('click',()=>CastApp.changeMonth(1));
 // 提出
-document.querySelector('.big-submit').addEventListener('click',async ()=>{
+document.getElementById('shiftSubmitBtn').addEventListener('click',async ()=>{
   // 月マタギ週が含まれる場合は提出範囲を確認
   const ym=CastApp.getViewYM();
   const wks=weeksInMonth(ym);
@@ -2985,9 +3015,17 @@ document.querySelector('.big-submit').addEventListener('click',async ()=>{
       }
     }
   }
-  const n=await CastApp.submitMonth();
-  if(n>0)CastApp.toast('🎉 '+n+'週分を提出しました。おつかれさまでした✨');
-  else CastApp.toast('提出できる新しいシフトがありません🤔');
+  // 画面をブロックして誤操作・中断を防ぐ
+  const overlay=document.getElementById('blockingOverlay');
+  const bmsg=document.getElementById('blockingMsg');
+  if(overlay){ if(bmsg)bmsg.textContent='シフトを提出中…'; overlay.style.display='flex'; }
+  try{
+    const n=await CastApp.submitMonth();
+    if(n>0)CastApp.toast('🎉 '+n+'週分を提出しました。おつかれさまでした✨');
+    else CastApp.toast('提出できる新しいシフトがありません🤔');
+  } finally {
+    if(overlay) overlay.style.display='none';
+  }
 });
 
 // 同期ボタン
