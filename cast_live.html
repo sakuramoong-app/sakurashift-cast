@@ -336,9 +336,7 @@
 
   <div class="tool-card" id="crSubmitCard" style="display:none">
     <div class="tool-title">✏️ 変更リクエスト</div>
-    <div class="tool-hint">変更したい確定済みの日付をタップして編集してください。下の「変更リクエストを提出」ボタンから送信できます。</div>
-    <div class="vac-label" style="margin-top:10px">📝 変更理由（必須）</div>
-    <textarea id="crReasonInput" placeholder="例：体調不良のため、予定が入ったため など" style="width:100%;min-height:60px;padding:10px 12px;border-radius:12px;border:2px solid var(--line);font-family:inherit;font-size:13px;color:var(--text);background:#F8FBF9;resize:vertical;margin-top:4px;"></textarea>
+    <div class="tool-hint">変更したい確定済みの日付をタップして、変更内容と理由を入力してください。下の「変更リクエストを提出」ボタンから送信できます。</div>
   </div>
 
   <div class="tool-card">
@@ -358,11 +356,14 @@
 <div class="submit-bar" id="submitBar">
   <button class="btn btn-primary big-submit" id="shiftSubmitBtn">📤 この月のシフトを提出する</button>
   <button class="btn btn-primary big-submit" id="crSubmitBtn" style="display:none">📤 変更リクエストを提出（<span id="crSubmitCount">0</span>日）</button>
-<div id="blockingOverlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(255,255,255,.85);backdrop-filter:blur(2px);align-items:center;justify-content:center;flex-direction:column;">
-  <div class="spinner" style="width:48px;height:48px;border-width:4px;"></div>
-  <div id="blockingMsg" style="margin-top:16px;font-size:15px;font-weight:800;color:var(--pink-deep);">保存中…</div>
-  <div style="margin-top:6px;font-size:12px;color:var(--text2);">閉じずにお待ちください🌸</div>
 </div>
+
+<div id="blockingOverlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;z-index:2147483647;background:rgba(20,20,30,.5);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);align-items:center;justify-content:center;flex-direction:column;touch-action:none;overscroll-behavior:contain;" onclick="event.stopPropagation();event.preventDefault();" ontouchstart="event.preventDefault();" ontouchmove="event.preventDefault();">
+  <div style="background:#fff;border-radius:20px;padding:28px 34px;display:flex;flex-direction:column;align-items:center;box-shadow:0 8px 32px rgba(0,0,0,.3);">
+    <div class="spinner" style="width:52px;height:52px;border-width:5px;"></div>
+    <div id="blockingMsg" style="margin-top:18px;font-size:16px;font-weight:800;color:var(--pink-deep);">保存中…</div>
+    <div style="margin-top:6px;font-size:12px;color:var(--text2);">画面を閉じずにお待ちください🌸</div>
+  </div>
 </div>
 
 <style>
@@ -1741,6 +1742,8 @@ const CastApp = (function(){
           <div class="vac-label">退勤</div>
           <select class="biz-sel" id="crEditEnd" style="width:100%;padding:10px"></select>
         </div>
+        <div class="vac-label" style="margin-top:12px">📝 変更理由（必須）</div>
+        <textarea id="crEditReason" placeholder="例：体調不良のため、予定が入ったため など" style="width:100%;min-height:56px;padding:10px;border-radius:10px;border:2px solid var(--line);font-family:inherit;font-size:13px;background:#F8FBF9;resize:vertical;margin-top:4px;">${pending&&pending.reason?pending.reason:''}</textarea>
         <div class="memo-modal-actions" style="margin-top:14px">
           ${pending?'<button class="memo-btn-clear" id="crEditRemove" style="color:#E05260">この日を取り消す</button>':'<button class="memo-btn-clear" id="crEditCancel">キャンセル</button>'}
           <button class="memo-btn-save" id="crEditAdd">変更予定に追加</button>
@@ -1773,12 +1776,15 @@ const CastApp = (function(){
     modal.querySelector('#crEditAdd').addEventListener('click',()=>{
       const typeEl=modal.querySelector('input[name="crEditType"]:checked');
       const type=typeEl?typeEl.value:'holiday';
+      const reasonEl=modal.querySelector('#crEditReason');
+      const reason=(reasonEl&&reasonEl.value||'').trim();
+      if(!reason){ toast('変更理由を入力してください📝'); if(reasonEl)reasonEl.focus(); return; }
       if(type==='time'){
         const start=parseInt(startSel.value), end=parseInt(endSel.value);
         if(start>=end){toast('退勤は出勤より後にしてください');return;}
-        _crPending[ds]={type:'time',start,end,wk,label};
+        _crPending[ds]={type:'time',start,end,wk,label,reason};
       } else {
-        _crPending[ds]={type:'holiday',wk,label};
+        _crPending[ds]={type:'holiday',wk,label,reason};
       }
       modal.remove();
       renderCalendar();
@@ -1814,16 +1820,15 @@ const CastApp = (function(){
   async function submitPendingChangeRequests(){
     const dsList=Object.keys(_crPending);
     if(dsList.length===0){ toast('変更する日を選んでください'); return; }
-    // 理由は必須
-    const reasonEl=document.getElementById('crReasonInput');
-    const reason=(reasonEl&&reasonEl.value||'').trim();
-    if(!reason){ toast('変更理由を入力してください📝'); if(reasonEl)reasonEl.focus(); return; }
-    // week別にまとめる
+    // 各日に理由が入っているか確認（ポップアップで必須化済みだが念のため）
+    const noReason=dsList.find(ds=>!(_crPending[ds].reason||'').trim());
+    if(noReason){ toast('変更理由が未入力の日があります📝'); return; }
+    // week別にまとめる（各日の理由を使う）
     const byWk={};
     dsList.forEach(ds=>{
       const p=_crPending[ds];
       if(!byWk[p.wk]) byWk[p.wk]={};
-      byWk[p.wk][ds] = p.type==='holiday' ? {type:'holiday',reason} : {type:'time',start:p.start,end:p.end,reason};
+      byWk[p.wk][ds] = p.type==='holiday' ? {type:'holiday',reason:p.reason} : {type:'time',start:p.start,end:p.end,reason:p.reason};
     });
     let okWeeks=[];
     for(const wk in byWk){
@@ -1833,7 +1838,6 @@ const CastApp = (function(){
     }
     const count=dsList.length;
     _crPending={};
-    if(reasonEl) reasonEl.value='';
     render();
     updateCrSubmitCard();
     await _autoSave();
@@ -2750,6 +2754,20 @@ document.querySelectorAll('.tmpl-chip:not(.tmpl-add)').forEach(chip=>{
 document.getElementById('tmplAdd').addEventListener('click',()=>CastApp.toast('テンプレ設定（本番で実装します）'));
 
 // 入力タブ切替
+// 画面全体ロック（保存中の誤操作防止）
+function showBlocking(msg){
+  const ov=document.getElementById('blockingOverlay');
+  const bm=document.getElementById('blockingMsg');
+  if(bm) bm.textContent=msg||'保存中…';
+  if(ov) ov.style.display='flex';
+  document.body.style.overflow='hidden';
+}
+function hideBlocking(){
+  const ov=document.getElementById('blockingOverlay');
+  if(ov) ov.style.display='none';
+  document.body.style.overflow='';
+}
+
 function switchInputTab(tab){
   document.getElementById('inputTabDow').classList.toggle('active', tab==='dow');
   document.getElementById('inputTabTmpl').classList.toggle('active', tab==='tmpl');
@@ -2978,15 +2996,22 @@ document.getElementById('icsBtn').addEventListener('click',()=>{
 // crBtn削除済み（確定済み日タップ方式に変更）
 document.getElementById('vacBtn').addEventListener('click',()=>CastApp.startVacationSelect());
 // 変更リクエスト一括提出
+// ブロッキングオーバーレイ：表示中は全操作を吸収
+(function(){
+  const ov=document.getElementById('blockingOverlay');
+  if(ov){
+    ['click','touchstart','touchmove','wheel','keydown'].forEach(ev=>{
+      ov.addEventListener(ev,(e)=>{ e.preventDefault(); e.stopPropagation(); }, {passive:false});
+    });
+  }
+})();
 const _crSubmitBtn=document.getElementById('crSubmitBtn');
 if(_crSubmitBtn) _crSubmitBtn.addEventListener('click',async ()=>{
-  const overlay=document.getElementById('blockingOverlay');
-  const bmsg=document.getElementById('blockingMsg');
-  if(overlay){ if(bmsg)bmsg.textContent='変更リクエストを送信中…'; overlay.style.display='flex'; }
+  showBlocking('変更リクエストを送信中…');
   try{
     await CastApp.submitPendingChangeRequests();
   } finally {
-    if(overlay) overlay.style.display='none';
+    hideBlocking();
   }
 });
 // 選択解除
@@ -3016,15 +3041,13 @@ document.getElementById('shiftSubmitBtn').addEventListener('click',async ()=>{
     }
   }
   // 画面をブロックして誤操作・中断を防ぐ
-  const overlay=document.getElementById('blockingOverlay');
-  const bmsg=document.getElementById('blockingMsg');
-  if(overlay){ if(bmsg)bmsg.textContent='シフトを提出中…'; overlay.style.display='flex'; }
+  showBlocking('シフトを提出中…');
   try{
     const n=await CastApp.submitMonth();
     if(n>0)CastApp.toast('🎉 '+n+'週分を提出しました。おつかれさまでした✨');
     else CastApp.toast('提出できる新しいシフトがありません🤔');
   } finally {
-    if(overlay) overlay.style.display='none';
+    hideBlocking();
   }
 });
 
