@@ -320,12 +320,9 @@
 
     <div class="input-tab-panel" id="inputPanelTmpl" style="display:none">
       <div class="tmpl-row" id="tmplRow">
-        <button class="tmpl-chip" data-s="17" data-e="24">17-24</button>
-        <button class="tmpl-chip" data-s="12" data-e="20">12-20</button>
-        <button class="tmpl-chip" data-s="18" data-e="29">18-5</button>
-        <button class="tmpl-chip tmpl-add" id="tmplAdd">＋設定</button>
+        <!-- テンプレはJSで動的に生成 -->
       </div>
-      <div class="tool-hint">テンプレを選ぶと、選んだ日に反映されます</div>
+      <div class="tool-hint">テンプレを選ぶと、選んだ日に反映されます。長押しで削除できます。</div>
     </div>
   </div>
 
@@ -1837,12 +1834,16 @@ const CastApp = (function(){
       okWeeks.push(wk);
     }
     const count=dsList.length;
+    // 通知用に各日の理由をまとめる（重複は1つに）
+    const allReasons=dsList.map(ds=>(_crPending[ds].reason||'').trim()).filter(Boolean);
+    const uniqReasons=[...new Set(allReasons)];
+    const reasonText=uniqReasons.join(' / ');
     _crPending={};
     render();
     updateCrSubmitCard();
     await _autoSave();
     okWeeks.forEach(wk=>{
-      const crMsg = cast+'さんがシフト変更申請をしました（理由：'+reason+'）';
+      const crMsg = cast+'さんがシフト変更申請をしました'+(reasonText?'（理由：'+reasonText+'）':'');
       GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'change', message:crMsg}).catch(()=>{});
       GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
         subject:'【サクラシフト】'+cast+'さんがシフト変更申請をしました',
@@ -2742,16 +2743,96 @@ document.getElementById('dowApply').addEventListener('click',async ()=>{
   const r=await CastApp.applyByDow(dows,s,e);
   CastApp.toast(r.okCount+'日分を入力しました✨');
 });
-// テンプレ
-document.querySelectorAll('.tmpl-chip:not(.tmpl-add)').forEach(chip=>{
-  chip.addEventListener('click',async ()=>{
-    const s=+chip.dataset.s,e=+chip.dataset.e;
-    const r=await CastApp.applyToSelected(s,e);
-    if(r.okCount===0)CastApp.toast('先に日付を選んでください');
-    else CastApp.toast(r.okCount+'日分にテンプレを反映しました✨');
+// ===== よく使うシフト テンプレート（localStorage保存） =====
+function _tmplKey(){ return 'sg_templates_'+(sessionStorage.getItem('castName')||''); }
+function getTemplates(){
+  try{
+    const saved=JSON.parse(localStorage.getItem(_tmplKey())||'null');
+    if(Array.isArray(saved)) return saved;
+  }catch(e){}
+  // 初期テンプレ
+  return [{s:17,e:24},{s:12,e:20},{s:18,e:29}];
+}
+function saveTemplates(list){
+  try{ localStorage.setItem(_tmplKey(), JSON.stringify(list)); }catch(e){}
+}
+function tmplLabel(s,e){
+  const f=(h)=>h>=25?(h-24):h>=24?(h-24):h;
+  const sl=s>=24?(s-24):s, el=e>=24?(e-24):e;
+  return `${sl}-${el}`;
+}
+function renderTemplates(){
+  const row=document.getElementById('tmplRow');
+  if(!row) return;
+  const list=getTemplates();
+  row.innerHTML='';
+  list.forEach((t,i)=>{
+    const btn=document.createElement('button');
+    btn.className='tmpl-chip';
+    btn.textContent=tmplLabel(t.s,t.e);
+    btn.dataset.idx=i;
+    // タップで反映
+    btn.addEventListener('click',async ()=>{
+      const r=await CastApp.applyToSelected(t.s,t.e);
+      if(r.okCount===0)CastApp.toast('先に日付を選んでください');
+      else CastApp.toast(r.okCount+'日分にテンプレを反映しました✨');
+    });
+    // 長押しで削除
+    let pressTimer=null;
+    btn.addEventListener('pointerdown',()=>{
+      pressTimer=setTimeout(()=>{
+        if(confirm(`テンプレ「${tmplLabel(t.s,t.e)}」を削除しますか？`)){
+          const cur=getTemplates(); cur.splice(i,1); saveTemplates(cur); renderTemplates();
+          CastApp.toast('テンプレを削除しました');
+        }
+      },600);
+    });
+    ['pointerup','pointerleave','pointercancel'].forEach(ev=>btn.addEventListener(ev,()=>{ if(pressTimer)clearTimeout(pressTimer); }));
+    row.appendChild(btn);
   });
-});
-document.getElementById('tmplAdd').addEventListener('click',()=>CastApp.toast('テンプレ設定（本番で実装します）'));
+  // ＋設定ボタン
+  const add=document.createElement('button');
+  add.className='tmpl-chip tmpl-add';
+  add.textContent='＋設定';
+  add.addEventListener('click',openTmplAdd);
+  row.appendChild(add);
+}
+function openTmplAdd(){
+  const existing=document.getElementById('tmplAddModal');
+  if(existing) existing.remove();
+  const modal=document.createElement('div');
+  modal.id='tmplAddModal';
+  modal.innerHTML=`
+    <div class="memo-modal-bg"></div>
+    <div class="memo-modal-box">
+      <div class="memo-modal-title">⭐ よく使うシフトを追加</div>
+      <div class="vac-label" style="margin-top:8px">出勤</div>
+      <select class="biz-sel" id="tmplAddStart" style="width:100%;padding:11px;margin-bottom:8px"></select>
+      <div class="vac-label">退勤</div>
+      <select class="biz-sel" id="tmplAddEnd" style="width:100%;padding:11px"></select>
+      <div class="memo-modal-actions" style="margin-top:14px">
+        <button class="memo-btn-clear" id="tmplAddCancel">キャンセル</button>
+        <button class="memo-btn-save" id="tmplAddSave">追加する</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  const ss=modal.querySelector('#tmplAddStart'), es=modal.querySelector('#tmplAddEnd');
+  for(let h=12;h<=28;h++){const lbl=h>=25?(h-24)+'(翌)':String(h);ss.innerHTML+=`<option value="${h}">${lbl}時</option>`;}
+  for(let h=13;h<=29;h++){const lbl=h>=25?(h-24)+'(翌)':String(h);es.innerHTML+=`<option value="${h}">${lbl}時</option>`;}
+  ss.value=18; es.value=24;
+  modal.querySelector('.memo-modal-bg').addEventListener('click',()=>modal.remove());
+  modal.querySelector('#tmplAddCancel').addEventListener('click',()=>modal.remove());
+  modal.querySelector('#tmplAddSave').addEventListener('click',()=>{
+    const s=+ss.value, e=+es.value;
+    if(s>=e){ CastApp.toast('退勤は出勤より後にしてください'); return; }
+    const list=getTemplates();
+    if(list.some(t=>t.s===s&&t.e===e)){ CastApp.toast('同じテンプレが既にあります'); return; }
+    if(list.length>=8){ CastApp.toast('テンプレは最大8個までです'); return; }
+    list.push({s,e}); saveTemplates(list); renderTemplates(); modal.remove();
+    CastApp.toast('テンプレを追加しました⭐');
+  });
+}
+renderTemplates();
 
 // 入力タブ切替
 // 画面全体ロック（保存中の誤操作防止）
