@@ -2304,6 +2304,8 @@ const CastApp = (function(){
         subject:'【サクラシフト】'+cast+'さんがシフトを提出しました',
         htmlBody:buildStaffMailHtml(cast, submitMsg, '📤 シフト提出')
       }).catch(()=>{});
+      // 操作ログにキャストの提出を記録
+      GasBridge._post({action:'addLog', type:'CAST_SUBMIT', cast:cast, week:'', detail:'シフトを提出'+(rangeLabel?'（'+rangeLabel+'）':''), by:cast}).catch(()=>{});
     }
     return submitted;
   }
