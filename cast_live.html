@@ -2276,15 +2276,17 @@ const CastApp = (function(){
   }
 
   async function applyByDow(dows, start, end){
-    const [y,m]=viewYM.split('-').map(Number);
-    const days=new Date(y,m,0).getDate();
+    // ★ A方式：この月に属する週の全日付を対象に（月マタギの翌月日も含む）
+    // 例：7月表示なら、7/27週に含まれる8/1・8/2も対象になる
+    const weeks = weeksInMonth(viewYM);
     const list=[];
-    for(let d=1;d<=days;d++){
-      const ds=`${viewYM}-${String(d).padStart(2,'0')}`;
-      const dow=new Date(y,m-1,d).getDay();
-      const info=getDayInfo(ds);
-      if(dows.includes(dow) && !info.locked) list.push(ds);
-    }
+    weeks.forEach(wk=>{
+      weekDates(wk).forEach(ds=>{
+        const dow=new Date(ds+'T12:00:00').getDay();
+        const info=getDayInfo(ds);
+        if(dows.includes(dow) && !info.locked) list.push(ds);
+      });
+    });
     return await applyShiftToDays(list, start, end);
   }
 
