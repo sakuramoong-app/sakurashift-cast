@@ -148,6 +148,22 @@
   .tool-hint{font-size:11px;color:var(--text2);font-weight:600;margin-top:8px;text-align:center;}
   .tmpl-row{display:flex;flex-wrap:wrap;gap:7px;}
   .input-tab-row{display:flex;gap:6px;margin-bottom:12px;}
+  /* 1日ごと入力の小窓（下からスライドイン） */
+  #singleDayModal{position:fixed;inset:0;z-index:2000;}
+  .sd-bg{position:absolute;inset:0;background:rgba(0,0,0,.35);}
+  .sd-sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:24px 24px 0 0;padding:10px 22px 30px;box-shadow:0 -6px 24px rgba(0,0,0,.18);transform:translateY(100%);transition:transform .25s cubic-bezier(.3,.8,.4,1);}
+  .sd-sheet.open{transform:translateY(0);}
+  .sd-handle{width:44px;height:5px;background:#DDD;border-radius:99px;margin:4px auto 16px;}
+  .sd-title{font-size:18px;font-weight:900;color:var(--text);text-align:center;margin-bottom:20px;}
+  .sd-time-row{display:flex;align-items:flex-end;justify-content:center;gap:14px;margin-bottom:22px;}
+  .sd-time-col{flex:1;max-width:150px;}
+  .sd-lbl{font-size:12px;font-weight:800;color:var(--text2);margin-bottom:6px;text-align:center;}
+  .sd-sel{width:100%;padding:13px;border:2px solid var(--mint-line);border-radius:13px;font-size:16px;font-family:inherit;font-weight:700;color:var(--text);background:#F8FBF9;text-align:center;}
+  .sd-tilde{font-size:18px;color:var(--text2);padding-bottom:13px;font-weight:800;}
+  .sd-actions{display:flex;gap:10px;}
+  .sd-btn{flex:1;padding:15px;border:none;border-radius:14px;font-size:15px;font-weight:900;cursor:pointer;font-family:inherit;}
+  .sd-btn-save{background:linear-gradient(135deg,var(--mint),var(--mint-deep));color:#fff;box-shadow:0 4px 14px rgba(63,168,138,.35);}
+  .sd-btn-del{background:#FFF0F3;color:#E0405A;border:2px solid #FFD0D8;flex:0 0 auto;padding:15px 18px;}
   .input-tab{flex:1;padding:9px;border-radius:11px;border:2px solid var(--line);background:#F8FBF9;font-family:inherit;font-size:12.5px;font-weight:800;color:var(--text2);cursor:pointer;transition:all .15s;}
   .input-tab.active{border-color:var(--mint-deep);background:var(--mint);color:var(--text);}
   .tmpl-chip{padding:9px 15px;border:2px solid var(--mint);border-radius:99px;background:#F2FAF6;color:var(--mint-deep);font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;}
@@ -230,7 +246,7 @@
       <span class="ht-label">おかえりなさい、<span id="helloUserName"></span>さん</span>
       <span class="ht-flower">🌼</span><span class="ht-flower">🌷</span>
     </div>
-    <div class="hello-notice">📢 アプリが新しくなりました🎉 ご不明な点は店長までお願いします</div>
+    <div class="hello-notice" id="helloNotice" style="display:none"></div>
   </div>
   <div class="praise-card" id="praiseCard">
     <div class="praise-head">
@@ -298,6 +314,7 @@
     <div class="input-tab-row">
       <button class="input-tab active" id="inputTabDow" onclick="switchInputTab('dow')">📅 曜日でまとめて</button>
       <button class="input-tab" id="inputTabTmpl" onclick="switchInputTab('tmpl')">⭐ よく使うシフト</button>
+      <button class="input-tab" id="inputTabSingle" onclick="switchInputTab('single')">📝 1日ごと</button>
     </div>
 
     <div class="input-tab-panel" id="inputPanelDow">
@@ -323,6 +340,10 @@
         <!-- テンプレはJSで動的に生成 -->
       </div>
       <div class="tool-hint">テンプレを選ぶと、選んだ日に反映されます。長押しで削除できます。</div>
+    </div>
+
+    <div class="input-tab-panel" id="inputPanelSingle" style="display:none">
+      <div class="tool-hint">📝 カレンダーの日付をタップすると、その日の出勤時間を1日ずつ入力できます。</div>
     </div>
   </div>
 
@@ -1420,6 +1441,14 @@ const GasBridge = {
     }catch(e){ console.warn('募集情報取得エラー', e); return null; }
   },
 
+  async loadNotice(){
+    try{
+      // マスタから全体お知らせを取得（PW・メールはサーバー側で除去済み）
+      const r = await this._get({action:'loadMaster'});
+      return (r && r.master && r.master.settings && r.master.settings.notice) || null;
+    }catch(e){ console.warn('お知らせ取得エラー', e); return null; }
+  },
+
   async markRead(castName){
     try{
       await this._get({action:'markRead', castName});
@@ -1445,14 +1474,15 @@ const CastApp = (function(){
     if(grid) grid.innerHTML='<div class="cal-loading"><span class="spinner"></span>🌸 読み込み中…</div>';
     setSaveState('loading');
     // シフト読込と通知・募集情報取得を並列で
-    let notifs=[], recruitInfo=null, loadOk=true;
+    let notifs=[], recruitInfo=null, noticeText=null, loadOk=true;
     try{
       const res = await Promise.all([
         GasBridge.loadMonth(cast, viewYM),
         GasBridge.getNotifications(cast),
         GasBridge.loadRecruitInfo(),
+        GasBridge.loadNotice(),
       ]);
-      notifs = res[1]||[]; recruitInfo = res[2];
+      notifs = res[1]||[]; recruitInfo = res[2]; noticeText = res[3];
     }catch(e){ loadOk=false; }
     // 読み込み失敗時：再試行案内
     if(!loadOk){
@@ -1480,6 +1510,16 @@ const CastApp = (function(){
       recruitInfo.shortages.forEach(s=>{ _recruitByDate[s.ds] = s.blocks||[]; });
     }
     renderCalendar();
+    // 全体お知らせを表示（設定画面で更新した内容）
+    const hn=document.getElementById('helloNotice');
+    if(hn){
+      if(noticeText && noticeText.trim()){
+        hn.textContent='📢 '+noticeText.trim();
+        hn.style.display='';
+      } else {
+        hn.style.display='none';
+      }
+    }
   }
 
   function render(){
@@ -1690,11 +1730,84 @@ const CastApp = (function(){
       toast('内勤が確認中のため編集できません🙏');
       return;
     }
+    // ★ 「1日ごと」タブ選択中は、その場で時刻入力の小窓を出す（複数選択しない）
+    if(window._inputTab==='single'){
+      openSingleDayPopup(ds, info);
+      return;
+    }
     // unsubmitted / waiting → 通常選択（編集可能）
     if(selected.has(ds)) selected.delete(ds);
     else selected.add(ds);
     renderCalendar();
     updateSelectedCount();
+  }
+
+  // 1日ごと入力の小窓（下からスライドイン）
+  function openSingleDayPopup(ds, info){
+    const existing=document.getElementById('singleDayModal');
+    if(existing) existing.remove();
+    const d=new Date(ds+'T12:00:00');
+    const dows=['日','月','火','水','木','金','土'];
+    const label=`${d.getMonth()+1}/${d.getDate()}(${dows[d.getDay()]})`;
+    // 既存シフトがあれば初期値に
+    const cur=(info.shift && info.shift.start!=null) ? info.shift : null;
+    const modal=document.createElement('div');
+    modal.id='singleDayModal';
+    modal.innerHTML=`
+      <div class="sd-bg" id="sdBg"></div>
+      <div class="sd-sheet">
+        <div class="sd-handle"></div>
+        <div class="sd-title">📝 ${label} の出勤</div>
+        <div class="sd-time-row">
+          <div class="sd-time-col">
+            <div class="sd-lbl">出勤</div>
+            <select class="sd-sel" id="sdStart"></select>
+          </div>
+          <span class="sd-tilde">〜</span>
+          <div class="sd-time-col">
+            <div class="sd-lbl">退勤</div>
+            <select class="sd-sel" id="sdEnd"></select>
+          </div>
+        </div>
+        <div class="sd-actions">
+          ${cur?'<button class="sd-btn sd-btn-del" id="sdDel">🗑 お休みにする</button>':''}
+          <button class="sd-btn sd-btn-save" id="sdSave">この日に登録</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    // 時刻プルダウン生成（12〜28時 / 13〜29時）
+    const ss=modal.querySelector('#sdStart'), es=modal.querySelector('#sdEnd');
+    for(let h=12;h<=28;h++){const lbl=h>=25?(h-24)+'(翌)':String(h);ss.innerHTML+=`<option value="${h}">${lbl}時</option>`;}
+    for(let h=13;h<=29;h++){const lbl=h>=25?(h-24)+'(翌)':String(h);es.innerHTML+=`<option value="${h}">${lbl}時</option>`;}
+    ss.value = cur?cur.start:18;
+    es.value = cur?cur.end:24;
+    // スライドイン
+    requestAnimationFrame(()=>modal.querySelector('.sd-sheet').classList.add('open'));
+    const close=()=>{ modal.querySelector('.sd-sheet').classList.remove('open'); setTimeout(()=>modal.remove(),200); };
+    modal.querySelector('#sdBg').addEventListener('click', close);
+    modal.querySelector('#sdSave').addEventListener('click', async ()=>{
+      const start=+ss.value, end=+es.value;
+      if(start>=end){ toast('退勤は出勤より後にしてください'); return; }
+      Store.dispatch('SET_SHIFT',{cast, ds, start, end});
+      close();
+      render();
+      setSaveState('saving');
+      await _autoSave();
+      setSaveState('saved');
+      toast(`${label} を登録しました✨`);
+    });
+    const delBtn=modal.querySelector('#sdDel');
+    if(delBtn){
+      delBtn.addEventListener('click', async ()=>{
+        Store.dispatch('SET_SHIFT',{cast, ds, start:null, end:null});
+        close();
+        render();
+        setSaveState('saving');
+        await _autoSave();
+        setSaveState('saved');
+        toast(`${label} をお休みにしました`);
+      });
+    }
   }
 
   /* 募集詳細ポップアップ */
@@ -2879,10 +2992,17 @@ function hideBlocking(){
 }
 
 function switchInputTab(tab){
+  window._inputTab = tab;
   document.getElementById('inputTabDow').classList.toggle('active', tab==='dow');
   document.getElementById('inputTabTmpl').classList.toggle('active', tab==='tmpl');
+  document.getElementById('inputTabSingle').classList.toggle('active', tab==='single');
   document.getElementById('inputPanelDow').style.display = tab==='dow'?'':'none';
   document.getElementById('inputPanelTmpl').style.display = tab==='tmpl'?'':'none';
+  document.getElementById('inputPanelSingle').style.display = tab==='single'?'':'none';
+  // 1日ごとタブは複数選択を使わないので、選択をクリアして混乱を防ぐ
+  if(tab==='single' && window.CastApp && CastApp.clearSelection){
+    CastApp.clearSelection();
+  }
 }
 
 // 🗑 シフトリセットボタン
