@@ -105,7 +105,7 @@
   .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;}
   .cell.other-month::after{content:'翌月';position:absolute;top:1px;right:3px;font-size:7px;color:#FF9EC0;font-weight:800;}
   .cal-loading{grid-column:1/-1;text-align:center;padding:50px 0;color:var(--mint-deep);font-weight:800;font-size:14px;}
-  .cell{aspect-ratio:1/1.5;border-radius:14px;background:#F8FBF9;border:2px solid transparent;padding:6px 3px 18px;cursor:pointer;display:flex;flex-direction:column;align-items:center;transition:transform .1s;position:relative;overflow:hidden;}
+  .cell{aspect-ratio:1/1.5;border-radius:14px;background:#F8FBF9;border:2px solid transparent;padding:6px 3px 6px;cursor:pointer;display:flex;flex-direction:column;align-items:center;transition:transform .1s;position:relative;overflow:hidden;}
   .cell:active{transform:scale(.93);}
   .cell.empty{background:transparent;cursor:default;}
   .cell .dnum{font-size:15px;font-weight:800;color:var(--text);line-height:1.1;}
@@ -447,9 +447,9 @@
   .rd-short{font-size:13px;font-weight:800;color:#E65100;}
   .rd-note{font-size:12px;color:var(--text2);line-height:1.6;margin-top:4px;}
   /* 完全終了 */
-  .kanzen-label{display:flex;align-items:center;gap:3px;font-size:11px;font-weight:800;color:var(--text2);cursor:pointer;position:absolute;bottom:3px;left:50%;transform:translateX(-50%);line-height:1;background:rgba(255,255,255,.7);border-radius:6px;padding:1px 4px;}
-  .kanzen-label input{width:13px;height:13px;accent-color:var(--mint-deep);cursor:pointer;}
-  .kanzen-badge{font-size:11px;font-weight:800;color:var(--mint-deep);position:absolute;bottom:3px;left:50%;transform:translateX(-50%);}
+  .kanzen-label{display:flex;align-items:center;justify-content:center;gap:3px;font-size:10.5px;font-weight:800;color:var(--text2);cursor:pointer;line-height:1;background:rgba(255,255,255,.85);border-radius:6px;padding:2px 4px;margin-top:3px;width:100%;box-sizing:border-box;}
+  .kanzen-label input{width:12px;height:12px;accent-color:var(--mint-deep);cursor:pointer;margin:0;flex-shrink:0;}
+  .kanzen-badge{font-size:10.5px;font-weight:800;color:var(--mint-deep);margin-top:3px;text-align:center;}
   /* メモモーダル */
   .memo-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:9800;}
   .memo-modal-box{position:fixed;left:50%;bottom:0;transform:translateX(-50%);width:calc(100% - 24px);max-width:420px;background:#fff;border-radius:22px 22px 0 0;padding:20px 18px 36px;z-index:9801;box-shadow:0 -8px 32px rgba(0,0,0,.15);}
