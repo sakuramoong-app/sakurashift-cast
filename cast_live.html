@@ -1165,6 +1165,17 @@ const Store = (function(){
         break;
       }
 
+      case 'REVERT_SUBMIT': {
+        // 保存失敗時：提出（waiting）を未提出（unsubmitted）に戻す
+        const w = _ensureWeek(p.cast, p.wk);
+        if(w.status==='waiting'){
+          w.status = 'unsubmitted';
+          w.submittedAt = null;
+          _touch(p.cast, p.wk, p.cast);
+        }
+        break;
+      }
+
       case 'SET_CHECK': {
         const w = _ensureWeek(p.cast, p.wk);
         const ckey = p.ds + '_' + p.media;
@@ -1425,6 +1436,22 @@ const GasBridge = {
       console.warn('読込通信エラー', e);
       return null;
     }
+  },
+
+  // 提出した週が本当にGASに保存されたか検証（アクセス集中・通信断の取りこぼし対策）
+  async verifyWeeksSaved(cast, wks){
+    if(!wks || wks.length===0) return {allSaved:true, missing:[]};
+    const r = await this._get({action:'loadMonth', cast, weeks:wks.join(',')});
+    const saved = (r && r.weeks) || {};
+    const missing = [];
+    wks.forEach(wk=>{
+      const w = saved[wk];
+      // 保存されていて、status が waiting か confirmed 系ならOK（unsubmittedや存在しないはNG）
+      const okStatus = w && w.status && w.status!=='unsubmitted';
+      const hasShift = w && w.shifts && Object.keys(w.shifts).some(ds=>w.shifts[ds] && w.shifts[ds].start!=null);
+      if(!okStatus || !hasShift) missing.push(wk);
+    });
+    return { allSaved: missing.length===0, missing };
   },
 
   async getNotifications(castName){
@@ -2416,6 +2443,7 @@ const CastApp = (function(){
     const weeks = weeksInMonth(viewYM);
     let submitted=0;
     const submittedDates=[];
+    const submittedWks=[];  // 検証用：提出した週キー
     weeks.forEach(wk=>{
       const w = Store.getWeek(cast, wk);
       // unsubmitted（新規）またはwaiting（再提出）でシフトがある週を提出
@@ -2424,6 +2452,7 @@ const CastApp = (function(){
         const r=Store.dispatch('SUBMIT_WEEK',{cast, wk});
         if(r && r.ok){
           submitted++;
+          submittedWks.push(wk);
           // この週のシフト入力日を集める
           Object.keys(w.shifts).forEach(ds=>{ if(w.shifts[ds]&&w.shifts[ds].start!=null) submittedDates.push(ds); });
         }
@@ -2432,10 +2461,38 @@ const CastApp = (function(){
     render();
     setSaveState('saving');
     const ok = await GasBridge.flushNow();
-    setSaveState(ok ? 'saved' : 'error');
+
+    // ★★ 保存検証：GASから読み直して、本当に保存されたか確認 ★★
+    // （アクセス集中や通信断で「提出したのに保存されていない」事故を防ぐ）
+    let verifyOk = ok;
+    if(submitted > 0){
+      try{
+        const check = await GasBridge.verifyWeeksSaved(cast, submittedWks);
+        verifyOk = ok && check.allSaved;
+        if(!check.allSaved){
+          console.warn('保存検証失敗：未保存の週', check.missing);
+        }
+      }catch(e){
+        console.warn('保存検証エラー', e);
+        verifyOk = false;  // 検証できない時は安全側（失敗扱い）
+      }
+    }
+
+    setSaveState(verifyOk ? 'saved' : 'error');
     render();
-    // ★ 内勤への通知（シフト提出）
-    if(submitted > 0 && ok){
+
+    // 保存に失敗（または検証NG）→ エラー表示して通知は送らない
+    if(submitted > 0 && !verifyOk){
+      // ローカルの提出状態を元に戻す（未提出に）→ 再提出できるように
+      submittedWks.forEach(wk=>Store.dispatch('REVERT_SUBMIT',{cast, wk}));
+      render();
+      hideBlocking();
+      _showSubmitError();
+      return -1;  // 呼び出し側でエラーと分かるように
+    }
+
+    // ★ 内勤への通知（シフト提出）※検証OKの時だけ
+    if(submitted > 0 && verifyOk){
       const rangeLabel = _dateRangeLabel(submittedDates);
       const submitMsg = cast+'さんがシフトを提出しました'+(rangeLabel?'（'+rangeLabel+'）':'');
       addMyNotif('my_submit', 'シフト提出が完了しました'+(rangeLabel?'（'+rangeLabel+'）':''));
@@ -2450,9 +2507,29 @@ const CastApp = (function(){
     return submitted;
   }
 
+  // 提出の保存に失敗した時のエラー表示（もう一度提出を促す）
+  function _showSubmitError(){
+    const existing=document.getElementById('submitErrModal');
+    if(existing) existing.remove();
+    const modal=document.createElement('div');
+    modal.id='submitErrModal';
+    modal.style.cssText='position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.5);';
+    modal.innerHTML=`
+      <div style="background:#fff;border-radius:20px;padding:26px 24px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.3)">
+        <div style="font-size:40px;margin-bottom:10px">😥</div>
+        <div style="font-size:17px;font-weight:900;color:#E0405A;margin-bottom:10px">提出が保存できませんでした</div>
+        <div style="font-size:13.5px;color:var(--text);line-height:1.7;margin-bottom:20px">
+          アクセスが混み合っていて、シフトが正しく保存されなかった可能性があります。<br>
+          <b>お手数ですが、もう一度「提出」ボタンを押してください🙏</b>
+        </div>
+        <button id="submitErrClose" style="width:100%;padding:14px;border:none;border-radius:13px;background:linear-gradient(135deg,#FFA9CE,#FF8FB8);color:#fff;font-size:15px;font-weight:900;cursor:pointer">閉じる</button>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector('#submitErrClose').addEventListener('click',()=>modal.remove());
+  }
+
   /* 日付配列 → "6/1〜6/30" のような範囲ラベル */
-  function _dateRangeLabel(dsArr){
-    if(!dsArr||dsArr.length===0) return '';
+  function _dateRangeLabel(dsArr){    if(!dsArr||dsArr.length===0) return '';
     const sorted=[...dsArr].sort();
     const f=(ds)=>{ const d=new Date(ds+'T12:00:00'); return `${d.getMonth()+1}/${d.getDate()}`; };
     if(sorted.length===1) return f(sorted[0]);
@@ -3274,7 +3351,8 @@ document.getElementById('shiftSubmitBtn').addEventListener('click',async ()=>{
   showBlocking('シフトを提出中…');
   try{
     const n=await CastApp.submitMonth();
-    if(n>0)CastApp.toast('🎉 '+n+'週分を提出しました。おつかれさまでした✨');
+    if(n===-1){ /* 保存失敗：submitMonth内でエラー表示済み。成功トーストは出さない */ }
+    else if(n>0)CastApp.toast('🎉 '+n+'週分を提出しました。おつかれさまでした✨');
     else CastApp.toast('提出できる新しいシフトがありません🤔');
   } finally {
     hideBlocking();
