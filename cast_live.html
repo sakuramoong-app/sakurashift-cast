@@ -1904,8 +1904,15 @@ const CastApp = (function(){
           <div class="vac-label">退勤</div>
           <select class="biz-sel" id="crEditEnd" style="width:100%;padding:10px"></select>
         </div>
-        <div class="vac-label" style="margin-top:12px">📝 変更理由（必須）</div>
-        <textarea id="crEditReason" placeholder="例：体調不良のため、予定が入ったため など" style="width:100%;min-height:56px;padding:10px;border-radius:10px;border:2px solid var(--line);font-family:inherit;font-size:13px;background:#F8FBF9;resize:vertical;margin-top:4px;">${pending&&pending.reason?pending.reason:''}</textarea>
+        <div class="vac-label" style="margin-top:12px">📝 変更理由（選択してください）</div>
+        <select class="biz-sel" id="crEditReasonType" style="width:100%;padding:10px;margin-top:4px">
+          <option value="">— 選択してください —</option>
+          <option value="体調不良">体調不良</option>
+          <option value="私情">私情（備考欄へ理由をお願いします）</option>
+          <option value="ロック解除目的">アプリ性質上のロック解除目的</option>
+          <option value="その他">その他</option>
+        </select>
+        <textarea id="crEditReason" placeholder="備考（任意）※「私情」の場合はご記入ください" style="width:100%;min-height:48px;padding:10px;border-radius:10px;border:2px solid var(--line);font-family:inherit;font-size:13px;background:#F8FBF9;resize:vertical;margin-top:8px;">${pending&&pending.memo?pending.memo:''}</textarea>
         <div class="memo-modal-actions" style="margin-top:14px">
           ${pending?'<button class="memo-btn-clear" id="crEditRemove" style="color:#E05260">この日を取り消す</button>':'<button class="memo-btn-clear" id="crEditCancel">キャンセル</button>'}
           <button class="memo-btn-save" id="crEditAdd">変更予定に追加</button>
@@ -1935,18 +1942,28 @@ const CastApp = (function(){
       updateCrSubmitCard();
       toast('変更予定から外しました');
     });
+    // プルダウンの初期値を復元
+    const reasonTypeSel=modal.querySelector('#crEditReasonType');
+    if(reasonTypeSel && pending && pending.reason) reasonTypeSel.value=pending.reason;
+
     modal.querySelector('#crEditAdd').addEventListener('click',()=>{
       const typeEl=modal.querySelector('input[name="crEditType"]:checked');
       const type=typeEl?typeEl.value:'holiday';
-      const reasonEl=modal.querySelector('#crEditReason');
-      const reason=(reasonEl&&reasonEl.value||'').trim();
-      if(!reason){ toast('変更理由を入力してください📝'); if(reasonEl)reasonEl.focus(); return; }
+      const reasonType=(reasonTypeSel&&reasonTypeSel.value||'').trim();
+      const memoEl=modal.querySelector('#crEditReason');
+      const memo=(memoEl&&memoEl.value||'').trim();
+      // プルダウンは必須
+      if(!reasonType){ toast('変更理由を選択してください📝'); if(reasonTypeSel)reasonTypeSel.focus(); return; }
+      // 「私情」を選んだ場合は備考を必須に
+      if(reasonType==='私情' && !memo){ toast('「私情」の場合は備考に理由をご記入ください📝'); if(memoEl)memoEl.focus(); return; }
+      // 表示用の理由テキスト（プルダウン＋備考）
+      const reason = reasonType + (memo ? '（'+memo+'）' : '');
       if(type==='time'){
         const start=parseInt(startSel.value), end=parseInt(endSel.value);
         if(start>=end){toast('退勤は出勤より後にしてください');return;}
-        _crPending[ds]={type:'time',start,end,wk,label,reason};
+        _crPending[ds]={type:'time',start,end,wk,label,reason,reasonType,memo};
       } else {
-        _crPending[ds]={type:'holiday',wk,label,reason};
+        _crPending[ds]={type:'holiday',wk,label,reason,reasonType,memo};
       }
       modal.remove();
       renderCalendar();
