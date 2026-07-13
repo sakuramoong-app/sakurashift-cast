@@ -2443,6 +2443,7 @@ const CastApp = (function(){
     const weeks = weeksInMonth(viewYM);
     let submitted=0;
     const submittedDates=[];
+    const submittedDetails=[];  // 保険：提出したシフト内容の詳細（消失時の復元用）
     const submittedWks=[];  // 検証用：提出した週キー
     weeks.forEach(wk=>{
       const w = Store.getWeek(cast, wk);
@@ -2453,8 +2454,13 @@ const CastApp = (function(){
         if(r && r.ok){
           submitted++;
           submittedWks.push(wk);
-          // この週のシフト入力日を集める
-          Object.keys(w.shifts).forEach(ds=>{ if(w.shifts[ds]&&w.shifts[ds].start!=null) submittedDates.push(ds); });
+          // この週のシフト入力日を集める（内容も保険としてログに残す）
+          Object.keys(w.shifts).sort().forEach(ds=>{
+            if(w.shifts[ds]&&w.shifts[ds].start!=null){
+              submittedDates.push(ds);
+              submittedDetails.push({ds, start:w.shifts[ds].start, end:w.shifts[ds].end});
+            }
+          });
         }
       }
     });
@@ -2495,14 +2501,18 @@ const CastApp = (function(){
     if(submitted > 0 && verifyOk){
       const rangeLabel = _dateRangeLabel(submittedDates);
       const submitMsg = cast+'さんがシフトを提出しました'+(rangeLabel?'（'+rangeLabel+'）':'');
+      // シフト内容の明細（データ消失時の復元用の保険）
+      const detailLines = _formatShiftDetails(submittedDetails);
       addMyNotif('my_submit', 'シフト提出が完了しました'+(rangeLabel?'（'+rangeLabel+'）':''));
       GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'submit', message:submitMsg}).catch(()=>{});
+      // メールにシフト明細を含める（万一DBが消えてもメールに残る）
       GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
         subject:'【サクラシフト】'+cast+'さんがシフトを提出しました',
-        htmlBody:buildStaffMailHtml(cast, submitMsg, '📤 シフト提出')
+        htmlBody:buildStaffMailHtml(cast, submitMsg+'<br><br><b>■ 提出内容</b><br>'+detailLines.replace(/\n/g,'<br>'), '📤 シフト提出')
       }).catch(()=>{});
-      // 操作ログにキャストの提出を記録
-      GasBridge._post({action:'addLog', type:'CAST_SUBMIT', cast:cast, week:'', detail:'シフトを提出'+(rangeLabel?'（'+rangeLabel+'）':''), by:cast}).catch(()=>{});
+      // 操作ログにシフト明細ごと記録（ログを見れば内容が復元できる）
+      GasBridge._post({action:'addLog', type:'CAST_SUBMIT', cast:cast, week:'',
+        detail:'シフトを提出'+(rangeLabel?'（'+rangeLabel+'）':'')+'\n'+detailLines, by:cast}).catch(()=>{});
     }
     return submitted;
   }
@@ -2526,6 +2536,17 @@ const CastApp = (function(){
       </div>`;
     document.body.appendChild(modal);
     modal.querySelector('#submitErrClose').addEventListener('click',()=>modal.remove());
+  }
+
+  // シフト明細を「8/4(火) 13-21」形式に整形（ログ・メール用）
+  function _formatShiftDetails(details){
+    if(!details||details.length===0) return '';
+    const dows=['日','月','火','水','木','金','土'];
+    const f=(h)=>h>=24?(h-24):h;
+    return details.map(d=>{
+      const dt=new Date(d.ds+'T12:00:00');
+      return `${dt.getMonth()+1}/${dt.getDate()}(${dows[dt.getDay()]}) ${f(d.start)}-${f(d.end)}`;
+    }).join('\n');
   }
 
   /* 日付配列 → "6/1〜6/30" のような範囲ラベル */
