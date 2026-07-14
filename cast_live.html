@@ -2016,6 +2016,17 @@ const CastApp = (function(){
       okWeeks.push(wk);
     }
     const count=dsList.length;
+    // 変更内容の明細を作る（日付順）※メール・ログ用
+    const dows=['日','月','火','水','木','金','土'];
+    const fmtH=(h)=>h>=24?(h-24):h;
+    const changeLines = dsList.sort().map(ds=>{
+      const p=_crPending[ds];
+      const dt=new Date(ds+'T12:00:00');
+      const dl=`${dt.getMonth()+1}/${dt.getDate()}(${dows[dt.getDay()]})`;
+      const content = p.type==='holiday' ? 'お休みに変更' : `${fmtH(p.start)}-${fmtH(p.end)}に変更`;
+      const rsn = (p.reason||'').trim();
+      return `${dl}：${content}${rsn?'（理由：'+rsn+'）':''}`;
+    });
     // 通知用に各日の理由をまとめる（重複は1つに）
     const allReasons=dsList.map(ds=>(_crPending[ds].reason||'').trim()).filter(Boolean);
     const uniqReasons=[...new Set(allReasons)];
@@ -2024,12 +2035,13 @@ const CastApp = (function(){
     render();
     updateCrSubmitCard();
     await _autoSave();
+    const detailBlock = changeLines.join('\n');
     okWeeks.forEach(wk=>{
       const crMsg = cast+'さんがシフト変更申請をしました'+(reasonText?'（理由：'+reasonText+'）':'');
       GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'change', message:crMsg}).catch(()=>{});
       GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
         subject:'【サクラシフト】'+cast+'さんがシフト変更申請をしました',
-        htmlBody:buildStaffMailHtml(cast, crMsg, '🔄 変更リクエスト')
+        htmlBody:buildStaffMailHtml(cast, cast+'さんがシフト変更申請をしました<br><br><b>■ 変更内容</b><br>'+detailBlock.replace(/\n/g,'<br>'), '🔄 変更リクエスト')
       }).catch(()=>{});
     });
     addMyNotif('my_change', 'シフト変更申請をしました');
