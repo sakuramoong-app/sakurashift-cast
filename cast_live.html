@@ -348,8 +348,8 @@
   </div>
 
   <div class="tool-card">
-    <div class="tool-title">🏖 通常のシフトと異なる場合（長期休暇等）</div>
-    <button class="cr-bar-btn vac-btn" id="vacBtn"><span class="vac-ico">🏖</span> 長期休暇申請</button>
+    <div class="tool-title">🏖️ 通常のシフトと異なる場合（長期休暇等）</div>
+    <button class="cr-bar-btn vac-btn" id="vacBtn"><span class="vac-ico">🏖️</span> 長期休暇申請</button>
   </div>
 
   <div class="tool-card" id="crSubmitCard" style="display:none">
@@ -1679,7 +1679,7 @@ const CastApp = (function(){
       // 休暇申請中
       } else if(info.vacationReq){
         cell.classList.add('vacation-req-cell');
-        inner = inner + `<span class="tag vacation-req">🏖申請中</span>`;
+        inner = inner + `<span class="tag vacation-req">🏖️申請中</span>`;
       } else if(info.cr){
         cell.classList.add('cr-cell');
         const label = info.cr.type==='holiday' ? '休' : fmtShift(info.cr.start,info.cr.end);
@@ -2040,7 +2040,7 @@ const CastApp = (function(){
       const crMsg = cast+'さんがシフト変更申請をしました'+(reasonText?'（理由：'+reasonText+'）':'');
       GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'change', message:crMsg}).catch(()=>{});
       GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
-        subject:'【サクラシフト】'+cast+'さんがシフト変更申請をしました',
+        subject:'🔄【変更申請】'+cast+'さんがシフト変更申請をしました',
         htmlBody:buildStaffMailHtml(cast, cast+'さんがシフト変更申請をしました<br><br><b>■ 変更内容</b><br>'+detailBlock.replace(/\n/g,'<br>'), '🔄 変更リクエスト')
       }).catch(()=>{});
     });
@@ -2065,7 +2065,7 @@ const CastApp = (function(){
     modal.innerHTML = `
       <div class="memo-modal-bg"></div>
       <div class="memo-modal-box">
-        <div class="memo-modal-title">🏖 長期休暇申請</div>
+        <div class="memo-modal-title">🏖️ 長期休暇申請</div>
         <div class="vac-desc">3日以上お休みが続く場合（旅行など）は、こちらから事前にご申請ください🌸 早めのご連絡、とても助かります！<br><br>📍 出稼ぎを許可されている方へ：備考欄に地域・店名をご記載ください</div>
         <div class="vac-label">📅 開始日</div>
         <input type="date" class="vac-date-input" id="vacStart">
@@ -2127,12 +2127,22 @@ const CastApp = (function(){
     document.getElementById('vacModal').remove();
     render();
     await _autoSave();
+    // 期間ラベルを作る（開始〜終了）
+    const sortedDates=[...dates].sort();
+    const _vd=(ds)=>{ const d=new Date(ds+'T12:00:00'); const w=['日','月','火','水','木','金','土'][d.getDay()]; return `${d.getMonth()+1}/${d.getDate()}(${w})`; };
+    const periodLabel = sortedDates.length>0
+      ? (sortedDates.length===1 ? _vd(sortedDates[0]) : `${_vd(sortedDates[0])}〜${_vd(sortedDates[sortedDates.length-1])}（${sortedDates.length}日間）`)
+      : '';
     // 内勤への通知（ntf + メール）
-    const vacMsg = cast+'さんが長期休暇を申請しました';
+    const vacMsg = cast+'さんが長期休暇を申請しました'+(periodLabel?'（'+periodLabel+'）':'');
     GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'vacation', message:vacMsg}).catch(()=>{});
+    // メールに期間と理由の明細を含める
+    let vacDetail = '';
+    if(periodLabel) vacDetail += '<b>■ 期間</b><br>'+periodLabel+'<br><br>';
+    vacDetail += '<b>■ 理由</b><br>'+((memo||'').trim() || '（記載なし）');
     GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
-      subject:'【サクラシフト】'+cast+'さんが長期休暇を申請しました',
-      htmlBody:buildStaffMailHtml(cast, vacMsg, '🏖 長期休暇申請')
+      subject:'🏖️【長期休暇申請】'+cast+'さんが長期休暇を申請しました',
+      htmlBody:buildStaffMailHtml(cast, cast+'さんが長期休暇を申請しました<br><br>'+vacDetail, '🏖️ 長期休暇申請')
     }).catch(()=>{});
     addMyNotif('my_vacation', '長期休暇を申請しました');
     toast('長期休暇を申請しました🌸 内勤からの連絡をお待ちください');
@@ -2286,7 +2296,7 @@ const CastApp = (function(){
       const crMsg = cast+'さんがシフト変更申請をしました';
       GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'change', message:crMsg}).catch(()=>{});
       GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
-        subject:'【サクラシフト】'+cast+'さんがシフト変更申請をしました',
+        subject:'🔄【変更申請】'+cast+'さんがシフト変更申請をしました',
         htmlBody:buildStaffMailHtml(cast, crMsg, '🔄 変更リクエスト')
       }).catch(()=>{});
     });
@@ -2371,7 +2381,7 @@ const CastApp = (function(){
     const crMsg = cast+'さんがシフト変更申請をしました';
     GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'change', message:crMsg}).catch(()=>{});
     GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
-      subject:'【サクラシフト】'+cast+'さんがシフト変更申請をしました',
+      subject:'🔄【変更申請】'+cast+'さんがシフト変更申請をしました',
       htmlBody:buildStaffMailHtml(cast, crMsg, '🔄 変更リクエスト')
     }).catch(()=>{});
     addMyNotif('my_change', `変更リクエストを送りました（${weekLabel(wk)}）`);
@@ -2536,7 +2546,7 @@ const CastApp = (function(){
       GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'submit', message:submitMsg}).catch(()=>{});
       // メールにシフト明細を含める（万一DBが消えてもメールに残る）
       GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
-        subject:'【サクラシフト】'+cast+'さんがシフトを提出しました',
+        subject:'📤【シフト提出】'+cast+'さんがシフトを提出しました',
         htmlBody:buildStaffMailHtml(cast, submitMsg+'<br><br><b>■ 提出内容</b><br>'+detailLines.replace(/\n/g,'<br>'), '📤 シフト提出')
       }).catch(()=>{});
       // 操作ログにシフト明細ごと記録（ログを見れば内容が復元できる）
@@ -2737,13 +2747,13 @@ const CastApp = (function(){
       change: {icon:'🔄', label:'変更申請受理'},
       change_done:{icon:'🔄', label:'変更確定'},
       reject: {icon:'🙏', label:'変更リクエスト却下'},
-      vacation_accepted:{icon:'🏖', label:'長期休暇承認'},
+      vacation_accepted:{icon:'🏖️', label:'長期休暇承認'},
       vacation_rejected:{icon:'🙏', label:'長期休暇却下'},
       notice: {icon:'📢', label:'お知らせ'},
       confirm:{icon:'✅', label:'確認'},
       my_submit:{icon:'📤', label:'シフト提出'},
       my_change:{icon:'✏️', label:'変更リクエスト送信'},
-      my_vacation:{icon:'🏖', label:'長期休暇申請'},
+      my_vacation:{icon:'🏖️', label:'長期休暇申請'},
     };
 
     // 最新3件だけ表示（多すぎると読みにくい）
@@ -2855,12 +2865,12 @@ const notifMeta={
   change:{icon:'🔄',cls:'ni-change'},
   change_done:{icon:'🔄',cls:'ni-done'},
   reject:{icon:'🙏',cls:'ni-reject'},
-  vacation_accepted:{icon:'🏖',cls:'ni-confirm'},
+  vacation_accepted:{icon:'🏖️',cls:'ni-confirm'},
   vacation_rejected:{icon:'🙏',cls:'ni-reject'},
   notice:{icon:'📢',cls:'ni-notice'},
   my_submit:{icon:'📤',cls:'ni-confirm'},
   my_change:{icon:'✏️',cls:'ni-change'},
-  my_vacation:{icon:'🏖',cls:'ni-notice'},
+  my_vacation:{icon:'🏖️',cls:'ni-notice'},
 };
 function fmtNotifTime(iso){
   if(!iso) return '';
@@ -3292,7 +3302,7 @@ function generateShiftCanvas(){
     } else if(isVac){
       ctx.font=`${Math.round(CH*0.3)}px sans-serif`;
       ctx.textAlign='center'; ctx.textBaseline='middle';
-      ctx.fillText('🏖', cx+CW/2, cy+CH*0.62);
+      ctx.fillText('🏖️', cx+CW/2, cy+CH*0.62);
     } else {
       ctx.fillStyle=T.offText;
       ctx.font=`${Math.round(CH*0.2)}px 'Hiragino Maru Gothic ProN','Noto Sans JP',sans-serif`;
