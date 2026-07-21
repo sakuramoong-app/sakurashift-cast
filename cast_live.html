@@ -146,6 +146,11 @@
   .apply-btn{padding:10px 16px;border:none;border-radius:12px;background:linear-gradient(135deg,var(--mint),var(--mint-deep));color:#fff;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;white-space:nowrap;}
   .apply-btn:active{transform:scale(.95);}
   .tool-hint{font-size:11px;color:var(--text2);font-weight:600;margin-top:8px;text-align:center;}
+  /* 選択した日を取り消す（お休みに） */
+  .cancel-shift-box{margin-top:12px;padding-top:12px;border-top:1.5px dashed var(--line);}
+  .cancel-shift-hint{font-size:11.5px;color:var(--text2);font-weight:600;line-height:1.6;margin-bottom:8px;text-align:center;}
+  .cancel-shift-btn{width:100%;padding:11px;border:2px solid #FFD0D8;border-radius:12px;background:#FFF0F3;color:#E0405A;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;}
+  .cancel-shift-btn:active{transform:scale(.98);}
   .tmpl-row{display:flex;flex-wrap:wrap;gap:7px;}
   .input-tab-row{display:flex;gap:6px;margin-bottom:12px;}
   /* 1日ごと入力の小窓（下からスライドイン） */
@@ -344,6 +349,11 @@
 
     <div class="input-tab-panel" id="inputPanelSingle" style="display:none">
       <div class="tool-hint">📝 カレンダーの日付をタップすると、その日の出勤時間を1日ずつ入力できます。</div>
+    </div>
+
+    <div class="cancel-shift-box">
+      <div class="cancel-shift-hint">🩹 間違えて入力してしまったときは、取り消したい日付をタップして選んでから、下のボタンで取り消せます。</div>
+      <button class="cancel-shift-btn" id="cancelShiftBtn">選択した日を取り消す（お休みに）</button>
     </div>
   </div>
 
@@ -2478,6 +2488,31 @@ const CastApp = (function(){
     return r;
   }
 
+  // 選択した日を取り消してお休みにする（誤入力の訂正・どのタブでも使える）
+  async function cancelSelectedShifts(){
+    const list=[...selected];
+    if(list.length===0) return {selected:0, canceled:0};
+    // 編集可能（ロックされていない）＆実際にシフトが入っている日だけ取り消す
+    let canceled=0;
+    list.forEach(ds=>{
+      const info=getDayInfo(ds);
+      if(info.locked) return;  // 確定済み等は変更リクエスト経由なので触らない
+      if(!info.shift || info.shift.start==null) return;  // 元々お休みならスキップ
+      const r=Store.dispatch('SET_SHIFT',{cast, ds, start:null, end:null});
+      if(r && r.ok) canceled++;
+    });
+    selected.clear();
+    updateSelectedCount();
+    if(canceled>0){
+      render();
+      setSaveState('saving');
+      const ok=await GasBridge.flushNow();
+      setSaveState(ok?'saved':'error');
+    }
+    render();
+    return {selected:list.length, canceled};
+  }
+
   async function submitMonth(){
     const weeks = weeksInMonth(viewYM);
     let submitted=0;
@@ -2805,7 +2840,7 @@ const CastApp = (function(){
   }
 
   return {
-    init, applyByDow, applyToSelected, submitMonth, submitPendingChangeRequests, updateCrSubmitCard,
+    init, applyByDow, applyToSelected, cancelSelectedShifts, submitMonth, submitPendingChangeRequests, updateCrSubmitCard,
     clearSelection, changeMonth, sync, render,
     getViewYM:()=>viewYM, toast, openNotifTab,
     openMemoModal, saveMemo, setKanzen,
@@ -3021,6 +3056,18 @@ document.getElementById('dowApply').addEventListener('click',async ()=>{
   if(s>=e){CastApp.toast('退勤は出勤より後に設定してください');return;}
   const r=await CastApp.applyByDow(dows,s,e);
   CastApp.toast(r.okCount+'日分を入力しました✨');
+});
+
+// 選択した日を取り消す（お休みに）— どのタブでも使える共通ボタン
+document.getElementById('cancelShiftBtn').addEventListener('click',async ()=>{
+  const r=await CastApp.cancelSelectedShifts();
+  if(r.canceled>0){
+    CastApp.toast(r.canceled+'日分を取り消しました（お休みに）');
+  } else if(r.selected===0){
+    CastApp.toast('取り消したい日付をタップして選んでください');
+  } else {
+    CastApp.toast('選択した日に入力はありませんでした');
+  }
 });
 // ===== よく使うシフト テンプレート（localStorage保存） =====
 function _tmplKey(){ return 'sg_templates_'+(sessionStorage.getItem('castName')||''); }
