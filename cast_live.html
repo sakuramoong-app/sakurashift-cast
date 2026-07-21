@@ -219,7 +219,12 @@
   .ni-reject{background:#FFE9E9;}
   .ni-notice{background:#FFF6DD;}
   .notif-body{flex:1;min-width:0;}
-  .notif-msg{font-size:13px;font-weight:700;color:var(--text);line-height:1.5;}
+  .notif-msg{font-size:13px;font-weight:700;color:var(--text);line-height:1.5;white-space:pre-wrap;}
+  .notif-acc-head{cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:6px;}
+  .notif-acc-arrow{font-size:10px;color:var(--text2);transition:transform .2s;flex-shrink:0;}
+  .notif-acc-arrow.open{transform:rotate(90deg);}
+  .notif-acc-detail{display:none;font-size:12.5px;font-weight:600;color:var(--text2);line-height:1.6;white-space:pre-wrap;margin-top:6px;padding-top:6px;border-top:1px dashed var(--line);}
+  .notif-acc-detail.open{display:block;}
   .notif-time{font-size:11px;color:var(--text2);font-weight:600;margin-top:3px;}
   .notif-dot{width:8px;height:8px;border-radius:50%;background:var(--pink-deep);flex-shrink:0;margin-top:5px;}
   .notif-empty{text-align:center;color:var(--text2);font-size:13px;font-weight:600;padding:40px 0;}
@@ -479,7 +484,7 @@
   .ntf-popup-list{display:flex;flex-direction:column;gap:8px;margin-bottom:11px;}
   .ntf-popup-item{display:flex;align-items:flex-start;gap:10px;padding:9px 12px;background:linear-gradient(120deg,#FFF8FC,#F4FCF8);border-radius:12px;border:1.5px solid var(--pink);}
   .ntf-popup-icon{font-size:18px;flex-shrink:0;line-height:1.3;}
-  .ntf-popup-msg{font-size:13px;font-weight:700;color:var(--text);line-height:1.5;}
+  .ntf-popup-msg{font-size:13px;font-weight:700;color:var(--text);line-height:1.5;white-space:pre-wrap;}
   .ntf-popup-more{font-size:12px;color:var(--text2);font-weight:700;text-align:center;margin-bottom:10px;}
   .ntf-popup-btn{width:100%;padding:11px;border:none;border-radius:13px;background:linear-gradient(135deg,var(--pink),var(--pink-deep));color:#fff;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;}
   .ntf-popup-btn:active{transform:scale(.97);}
@@ -1918,6 +1923,7 @@ const CastApp = (function(){
         <select class="biz-sel" id="crEditReasonType" style="width:100%;padding:10px;margin-top:4px">
           <option value="">— 選択してください —</option>
           <option value="体調不良">体調不良</option>
+          <option value="出勤調整ご協力">出勤調整ご協力</option>
           <option value="私情">私情（備考欄へ理由をお願いします）</option>
           <option value="ロック解除目的">アプリ性質上のロック解除目的</option>
           <option value="その他">その他</option>
@@ -2054,7 +2060,7 @@ const CastApp = (function(){
         htmlBody:buildStaffMailHtml(cast, cast+'さんがシフト変更申請をしました<br><br><b>■ 変更内容</b><br>'+detailBlock.replace(/\n/g,'<br>'), '🔄 変更リクエスト')
       }).catch(()=>{});
     });
-    addMyNotif('my_change', 'シフト変更申請をしました');
+    addMyNotif('my_change', 'シフト変更申請をしました\n'+detailBlock);
     toast(`${count}日分の変更リクエストを送りました🙏`);
   }
 
@@ -2154,7 +2160,7 @@ const CastApp = (function(){
       subject:'🏖️【長期休暇申請】'+cast+'さんが長期休暇を申請しました',
       htmlBody:buildStaffMailHtml(cast, cast+'さんが長期休暇を申請しました<br><br>'+vacDetail, '🏖️ 長期休暇申請')
     }).catch(()=>{});
-    addMyNotif('my_vacation', '長期休暇を申請しました');
+    addMyNotif('my_vacation', '長期休暇を申請しました'+(periodLabel?'\n期間：'+periodLabel:'')+((memo||'').trim()?'\n理由：'+memo.trim():''));
     toast('長期休暇を申請しました🌸 内勤からの連絡をお待ちください');
   }
 
@@ -2577,7 +2583,7 @@ const CastApp = (function(){
       const submitMsg = cast+'さんがシフトを提出しました'+(rangeLabel?'（'+rangeLabel+'）':'');
       // シフト内容の明細（データ消失時の復元用の保険）
       const detailLines = _formatShiftDetails(submittedDetails);
-      addMyNotif('my_submit', 'シフト提出が完了しました'+(rangeLabel?'（'+rangeLabel+'）':''));
+      addMyNotif('my_submit', 'シフト提出が完了しました'+(rangeLabel?'（'+rangeLabel+'）':'')+(detailLines?'\n'+detailLines:''));
       GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'submit', message:submitMsg}).catch(()=>{});
       // メールにシフト明細を含める（万一DBが消えてもメールに残る）
       GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
@@ -2907,6 +2913,14 @@ const notifMeta={
   my_change:{icon:'✏️',cls:'ni-change'},
   my_vacation:{icon:'🏖️',cls:'ni-notice'},
 };
+// 通知アコーディオンの開閉
+function _toggleNotifAcc(headEl){
+  const detail=headEl.parentNode.querySelector('.notif-acc-detail');
+  const arrow=headEl.querySelector('.notif-acc-arrow');
+  if(detail) detail.classList.toggle('open');
+  if(arrow) arrow.classList.toggle('open');
+}
+
 function fmtNotifTime(iso){
   if(!iso) return '';
   const d=new Date(iso);
@@ -2962,8 +2976,20 @@ async function renderNotifs(){
     const el=document.createElement('div');
     el.className='notif-item'+(isRead?'':' unread');
     el.style.animationDelay=(i*0.05)+'s';
+    // メッセージを1行目（見出し）と残り（明細）に分ける
+    const msg=(n.message||'').trim();
+    const nl=msg.indexOf('\n');
+    const head = nl<0 ? msg : msg.slice(0,nl);
+    const detail = nl<0 ? '' : msg.slice(nl+1).trim();
+    const hasDetail = detail.length>0;
+    const bodyHtml = hasDetail
+      ? `<div class="notif-msg notif-acc-head" onclick="_toggleNotifAcc(this)">
+           ${esc(head)} <span class="notif-acc-arrow">▶</span>
+         </div>
+         <div class="notif-acc-detail">${esc(detail)}</div>`
+      : `<div class="notif-msg">${esc(head)}</div>`;
     el.innerHTML=`<div class="notif-icon ${m.cls}">${m.icon}</div>
-      <div class="notif-body"><div class="notif-msg">${n.message||''}</div><div class="notif-time">${fmtNotifTime(n.createdAt)}</div></div>
+      <div class="notif-body">${bodyHtml}<div class="notif-time">${fmtNotifTime(n.createdAt)}</div></div>
       ${isRead?'':'<div class="notif-dot"></div>'}`;
     list.appendChild(el);
   });
