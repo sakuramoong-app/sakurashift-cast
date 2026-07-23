@@ -622,7 +622,7 @@ const TRANSITIONS = {
   waiting:          ['inputting','confirmed','unsubmitted'], // キャストが取り下げ可能
   inputting:        ['confirmed','waiting'],
   confirmed:        ['change_requested'],
-  change_requested: ['change_inputting','confirmed'],
+  change_requested: ['change_confirmed','change_inputting','confirmed'],
   change_inputting: ['change_confirmed','confirmed'],
   change_confirmed: ['change_requested'],
 };
@@ -661,6 +661,7 @@ const ERROR_MESSAGES = {
   VALIDATION: '✏️ 入力エラー：入力内容を確認してください',
   SERVER:     '🛠 サーバーエラー：管理者へ連絡してください',
   LOCKED:     '🔒 ロック中：提出済みのため編集できません',
+  BAD_TRANSITION: '🕒 前回の変更申請を内勤が確認中です。受理または却下されるまでお待ちください',
 };
 function errorMessage(code){
   const base = String(code||'').split(':')[0];
@@ -1220,7 +1221,11 @@ const Store = (function(){
       case 'REQUEST_CHANGE': {
         const w = _ensureWeek(p.cast, p.wk);
         if(!canTransition(w.status,'change_requested')) return {error:'BAD_TRANSITION'};
-        w.changeRequest = p.changes;
+        // ★ 連続申請対応：既存の申請を消さず日付単位でマージする
+        //   （以前は上書き代入で、2回目の申請時に1回目の内容が消えていた）
+        const merged = Object.assign({}, w.changeRequest || {});
+        for(const ds in (p.changes||{})){ merged[ds] = p.changes[ds]; }
+        w.changeRequest = merged;
         w.status = 'change_requested';
         _touch(p.cast, p.wk, p.cast);
         break;
@@ -1298,8 +1303,9 @@ const Store = (function(){
   }
 
   function canEditByStatus(status){
-    // unsubmitted（未提出）・waiting（提出済みだが内勤未操作）・change_inputting（変更受理後）は編集可能
-    return status==='unsubmitted' || status==='waiting' || status==='change_inputting' || isEditable(status);
+    // unsubmitted（未提出）・waiting（提出済みだが内勤未操作）は編集可能
+    // ※確認通知を送った時点／変更申請を受理した時点で週はロックされる
+    return status==='unsubmitted' || status==='waiting' || isEditable(status);
   }
 
   function subscribe(fn){ listeners.push(fn); }
@@ -2179,6 +2185,8 @@ const CastApp = (function(){
       const wk=weekKeyOf(ds);
       const w=Store.getWeek(cast,wk);
       if(!w||!w.shifts[ds]) continue;
+      // ★ 受理待ちブロック：change_requested（申請中）の週は追加申請させない
+      //   内勤が受理／却下するまで待つ。連続申請によるデータ欠損・メール連投を防ぐ
       if(w.status!=='confirmed'&&w.status!=='change_confirmed') continue;
       if(w.vacations&&w.vacations[ds]) continue;
       const dd=new Date(ds+'T12:00:00');
