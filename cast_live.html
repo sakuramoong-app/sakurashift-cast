@@ -388,6 +388,7 @@
 <div class="save-state-bar" id="saveState">✅ 保存済み</div>
 <div class="submit-bar" id="submitBar">
   <button class="btn btn-primary big-submit" id="shiftSubmitBtn">📤 この月のシフトを提出する</button>
+  <button class="btn" id="withdrawBtn" style="display:none;width:100%;margin-top:8px;padding:12px;border:2px solid #FFD3A6;border-radius:14px;background:#FFF8F0;color:#D2691E;font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;">↩️ 提出を取り下げて編集する</button>
   <button class="btn btn-primary big-submit" id="crSubmitBtn" style="display:none">📤 変更リクエストを提出（<span id="crSubmitCount">0</span>日）</button>
 </div>
 
@@ -608,7 +609,7 @@ const AVC = ['av-0','av-1','av-2','av-3','av-4'];
    ============================================================ */
 const STATUS = {
   unsubmitted:      { label:'未提出',     badge:'badge-gray',   locked:false, inbox:false, editable:true  },
-  waiting:          { label:'提出済み',   badge:'badge-warning',locked:false, inbox:true,  editable:true  }, // キャスト編集可能
+  waiting:          { label:'提出済み',   badge:'badge-warning',locked:true,  inbox:true,  editable:false }, // ★提出時にロック（取り下げれば編集可）
   inputting:        { label:'内勤入力中', badge:'badge-info',   locked:true,  inbox:false, editable:false }, // 内勤が触ったらロック
   confirmed:        { label:'確定',       badge:'badge-success',locked:true,  inbox:false, editable:false },
   change_requested: { label:'変更申請中', badge:'badge-pink',   locked:true,  inbox:true,  editable:false },
@@ -1303,9 +1304,10 @@ const Store = (function(){
   }
 
   function canEditByStatus(status){
-    // unsubmitted（未提出）・waiting（提出済みだが内勤未操作）は編集可能
-    // ※確認通知を送った時点／変更申請を受理した時点で週はロックされる
-    return status==='unsubmitted' || status==='waiting' || isEditable(status);
+    // unsubmitted（未提出）のみ編集可能
+    // ★ 提出ボタンを押した時点でロック。修正したい場合は「提出を取り下げる」で戻す
+    // ※確認通知を送った時点／変更申請を受理した時点も当然ロック
+    return status==='unsubmitted' || isEditable(status);
   }
 
   function subscribe(fn){ listeners.push(fn); }
@@ -1610,6 +1612,18 @@ const CastApp = (function(){
       btn.disabled = false;
       btn.classList.remove('needs-submit');
       btn.textContent = '📤 この月のシフトを提出する';
+    }
+
+    // ★ 取り下げボタン：確認通知前（waiting）の週がある時だけ表示
+    const wBtn=document.getElementById('withdrawBtn');
+    if(wBtn){
+      const n=getWithdrawableWeeks().length;
+      if(n>0){
+        wBtn.style.display='block';
+        wBtn.textContent='↩️ 提出を取り下げて編集する'+(n>1?`（${n}週分）`:'');
+      } else {
+        wBtn.style.display='none';
+      }
     }
   }
 
@@ -2605,6 +2619,59 @@ const CastApp = (function(){
     return submitted;
   }
 
+  /* ★ 提出の取り下げ
+     提出後・内勤の確認通知前（waiting）の週を未提出に戻して再編集できるようにする。
+     内勤が確認通知を送った後（confirmed以降）は取り下げ不可＝変更申請を使ってもらう。 */
+  function getWithdrawableWeeks(){
+    const out=[];
+    weeksInMonth(viewYM).forEach(wk=>{
+      const w=Store.getWeek(cast, wk);
+      if(w && w.status==='waiting') out.push(wk);
+    });
+    return out;
+  }
+
+  async function withdrawSubmit(){
+    const wks=getWithdrawableWeeks();
+    if(wks.length===0){
+      toast('取り下げできる提出がありません🤔');
+      return 0;
+    }
+    const fmtWk=wk=>{
+      const ds=weekDates(wk);
+      const a=new Date(ds[0]+'T12:00:00'), b=new Date(ds[6]+'T12:00:00');
+      return `${a.getMonth()+1}/${a.getDate()}〜${b.getMonth()+1}/${b.getDate()}`;
+    };
+    if(!confirm(`提出を取り下げて編集できるようにします。\n\n【対象】${wks.length}週分\n${wks.map(fmtWk).join('\n')}\n\n※取り下げた分は、編集後にもう一度「提出」を押してください。\nよろしいですか？`)) return 0;
+
+    let n=0;
+    wks.forEach(wk=>{
+      const r=Store.dispatch('REVERT_SUBMIT',{cast, wk});
+      if(!(r&&r.error)) n++;
+    });
+    render();
+    setSaveState('saving');
+    const ok=await GasBridge.flushNow();
+    setSaveState(ok?'saved':'error');
+    render();
+
+    if(!ok){
+      toast('⚠️ 取り下げの保存に失敗しました。通信状況を確認してもう一度お試しください');
+      return -1;
+    }
+    // 内勤へ通知（受信ボックスから消えるため、行き違い防止）
+    GasBridge._post({
+      action:'sendEmail', toRole:'staff',
+      subject:'↩️【提出取り下げ】'+cast+'さん',
+      htmlBody:buildStaffMailHtml(cast,
+        cast+'さんがシフト提出を取り下げました。<br>対象：'+wks.map(fmtWk).join('、')
+        +'<br><br>編集後に再提出されます。', '↩️ 提出取り下げ')
+    }).catch(()=>{});
+    GasBridge._post({action:'addLog', type:'CAST_WITHDRAW', cast:cast, week:wks.join(','),
+      detail:'提出を取り下げ（'+wks.map(fmtWk).join('、')+'）', by:cast}).catch(()=>{});
+    return n;
+  }
+
   // 提出の保存に失敗した時のエラー表示（もう一度提出を促す）
   function _showSubmitError(){
     const existing=document.getElementById('submitErrModal');
@@ -2854,7 +2921,7 @@ const CastApp = (function(){
   }
 
   return {
-    init, applyByDow, applyToSelected, cancelSelectedShifts, submitMonth, submitPendingChangeRequests, updateCrSubmitCard,
+    init, applyByDow, applyToSelected, cancelSelectedShifts, submitMonth, withdrawSubmit, getWithdrawableWeeks, submitPendingChangeRequests, updateCrSubmitCard,
     clearSelection, changeMonth, sync, render,
     getViewYM:()=>viewYM, toast, openNotifTab,
     openMemoModal, saveMemo, setKanzen,
@@ -3503,6 +3570,18 @@ document.getElementById('shiftSubmitBtn').addEventListener('click',async ()=>{
 // 同期ボタン
 const syncBtn=document.getElementById('syncBtn');
 if(syncBtn)syncBtn.addEventListener('click',()=>CastApp.sync());
+
+// ★ 提出の取り下げボタン
+const withdrawBtn=document.getElementById('withdrawBtn');
+if(withdrawBtn)withdrawBtn.addEventListener('click',async()=>{
+  showBlocking('提出を取り下げています…');
+  try{
+    const n=await CastApp.withdrawSubmit();
+    if(n>0) CastApp.toast('↩️ 提出を取り下げました。編集後にもう一度提出してください');
+  } finally {
+    hideBlocking();
+  }
+});
 // ログアウトボタン
 const logoutBtn=document.getElementById('logoutBtn');
 if(logoutBtn)logoutBtn.addEventListener('click',()=>{
