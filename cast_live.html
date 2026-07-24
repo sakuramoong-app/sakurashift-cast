@@ -681,7 +681,7 @@ const ERROR_MESSAGES = {
   PERMISSION: '🔒 権限エラー：この操作はできません',
   VALIDATION: '✏️ 入力エラー：入力内容を確認してください',
   SERVER:     '🛠 サーバーエラー：管理者へ連絡してください',
-  LOCKED:     '🔒 ロック中：提出済みのため編集できません',
+  LOCKED:     '🔒 提出済みのため編集できません。「提出を取り下げて編集する」を押すか、変更リクエストをご利用ください',
   BAD_TRANSITION: '🕒 前回の変更申請を内勤が確認中です。受理または却下されるまでお待ちください',
 };
 function errorMessage(code){
@@ -1909,7 +1909,9 @@ const CastApp = (function(){
     modal.querySelector('#sdSave').addEventListener('click', async ()=>{
       const start=+ss.value, end=+es.value;
       if(start>=end){ toast('退勤は出勤より後にしてください'); return; }
-      Store.dispatch('SET_SHIFT',{cast, ds, start, end});
+      // ★ 戻り値を必ず確認（提出済みの週はロックされている）
+      const r=Store.dispatch('SET_SHIFT',{cast, ds, start, end});
+      if(r&&r.error){ toast(errorMessage(r.error)); close(); return; }
       close();
       render();
       setSaveState('saving');
@@ -1920,7 +1922,8 @@ const CastApp = (function(){
     const delBtn=modal.querySelector('#sdDel');
     if(delBtn){
       delBtn.addEventListener('click', async ()=>{
-        Store.dispatch('SET_SHIFT',{cast, ds, start:null, end:null});
+        const r=Store.dispatch('SET_SHIFT',{cast, ds, start:null, end:null});
+        if(r&&r.error){ toast(errorMessage(r.error)); close(); return; }
         close();
         render();
         setSaveState('saving');
@@ -2539,18 +2542,21 @@ const CastApp = (function(){
   }
 
   async function applyShiftToDays(dsList, start, end){
-    let okCount=0, ng=[];
+    let okCount=0, ng=[], lockedCount=0;
     dsList.forEach(ds=>{
       const r = Store.dispatch('SET_SHIFT',{cast, ds, start, end});
       if(r && r.ok) okCount++;
-      else ng.push(ds);
+      else {
+        ng.push(ds);
+        if(r && r.error==='LOCKED') lockedCount++;
+      }
     });
     render();
     setSaveState('saving');
     const ok = await GasBridge.flushNow();
     setSaveState(ok ? 'saved' : 'error');
     render();
-    return {okCount, ng};
+    return {okCount, ng, lockedCount};
   }
 
   async function applyByDow(dows, start, end){
@@ -2558,14 +2564,21 @@ const CastApp = (function(){
     // 例：7月表示なら、7/27週に含まれる8/1・8/2も対象になる
     const weeks = weeksInMonth(viewYM);
     const list=[];
+    let skippedLocked=0;
     weeks.forEach(wk=>{
       weekDates(wk).forEach(ds=>{
         const dow=new Date(ds+'T12:00:00').getDay();
+        if(!dows.includes(dow)) return;
         const info=getDayInfo(ds);
-        if(dows.includes(dow) && !info.locked) list.push(ds);
+        if(info.locked){ skippedLocked++; return; }  // 提出済み・確定済みは対象外
+        list.push(ds);
       });
     });
-    return await applyShiftToDays(list, start, end);
+    // ★ 対象日が全てロックされていた場合は、その旨を返す（無言で何も起きないのを防ぐ）
+    if(list.length===0) return {okCount:0, ng:[], lockedCount:skippedLocked};
+    const r = await applyShiftToDays(list, start, end);
+    r.lockedCount = (r.lockedCount||0) + skippedLocked;
+    return r;
   }
 
   async function applyToSelected(start, end){
@@ -3217,7 +3230,12 @@ document.getElementById('dowApply').addEventListener('click',async ()=>{
   const s=+document.getElementById('dowStart').value,e=+document.getElementById('dowEnd').value;
   if(s>=e){CastApp.toast('退勤は出勤より後に設定してください');return;}
   const r=await CastApp.applyByDow(dows,s,e);
-  CastApp.toast(r.okCount+'日分を入力しました✨');
+  if(r.okCount===0){
+    if(r.lockedCount>0) CastApp.toast('🔒 該当日は提出済みのため変更できません。「提出を取り下げて編集する」を押すか、変更リクエストをご利用ください');
+    else CastApp.toast('対象の日がありませんでした');
+  } else {
+    CastApp.toast(r.okCount+'日分を入力しました✨'+(r.lockedCount>0?`（提出済みの${r.lockedCount}日は除く）`:''));
+  }
 });
 
 // 選択した日を取り消す（お休みに）— どのタブでも使える共通ボタン
@@ -3262,7 +3280,10 @@ function renderTemplates(){
     // タップで反映
     btn.addEventListener('click',async ()=>{
       const r=await CastApp.applyToSelected(t.s,t.e);
-      if(r.okCount===0)CastApp.toast('先に日付を選んでください');
+      if(r.okCount===0){
+        if(r.lockedCount>0) CastApp.toast('🔒 提出済みのため変更できません。「提出を取り下げて編集する」を押すか、変更リクエストをご利用ください');
+        else CastApp.toast('先に日付を選んでください');
+      }
       else CastApp.toast(r.okCount+'日分にテンプレを反映しました✨');
     });
     // 長押しで削除
