@@ -21,7 +21,7 @@
       radial-gradient(circle at 88% 14%, #DCF3FF 0%, transparent 30%),
       radial-gradient(circle at 50% 100%, #FBF0D9 0%, transparent 40%),
       linear-gradient(170deg,#F0FBF4,#F6FBFF);
-    background-attachment:fixed;color:var(--text);line-height:1.65;padding-bottom:90px;min-height:100vh;
+    background-attachment:fixed;color:var(--text);line-height:1.65;padding-bottom:170px;min-height:100vh;
   }
   @keyframes spin{to{transform:rotate(360deg);}}
   .spinner{display:inline-block;width:13px;height:13px;border:2px solid #D9F0E5;border-top-color:var(--mint-deep);border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px;margin-right:5px;}
@@ -192,8 +192,11 @@
     100%{background-position:-200% center;}
   }
   .big-submit.needs-submit{
-    background:linear-gradient(90deg,#5FD0A0,#A7E8C8,#fff,#A7E8C8,#5FD0A0);
+    background:linear-gradient(90deg,#FFB800,#FFF6C0,#FFD700,#FFF6C0,#FFB800);
     background-size:300% auto;
+    color:#7A5C00!important;
+    border:2px solid #FFD700;
+    text-shadow:0 1px 1px rgba(255,255,255,.6);
     animation:submit-pulse 3s ease-in-out infinite, submit-shine 7s linear infinite;
   }
   /* 通知タブ */
@@ -228,7 +231,21 @@
   .notif-time{font-size:11px;color:var(--text2);font-weight:600;margin-top:3px;}
   .notif-dot{width:8px;height:8px;border-radius:50%;background:var(--pink-deep);flex-shrink:0;margin-top:5px;}
   .notif-empty{text-align:center;color:var(--text2);font-size:13px;font-weight:600;padding:40px 0;}
-  .submit-bar{position:fixed;left:0;right:0;bottom:0;z-index:100;background:rgba(255,255,255,.92);backdrop-filter:blur(10px);padding:11px 16px 14px;box-shadow:0 -3px 18px var(--shadow);display:flex;gap:10px;max-width:560px;margin:0 auto;border-top:2px solid var(--line);}
+  .submit-bar{position:fixed;left:0;right:0;bottom:0;z-index:100;background:rgba(255,255,255,.92);backdrop-filter:blur(10px);padding:11px 16px 14px;box-shadow:0 -3px 18px var(--shadow);display:flex;flex-direction:column;max-width:560px;margin:0 auto;border-top:2px solid var(--line);}
+  .submit-bar-btns{display:flex;gap:10px;}
+  /* ★ 未提出の警告バー（押し忘れ防止） */
+  .submit-alert{
+    background:linear-gradient(135deg,#FF6B8A,#E0405A);
+    color:#fff;font-size:13px;font-weight:900;line-height:1.5;
+    border-radius:12px;padding:9px 13px;margin-bottom:9px;text-align:center;
+    box-shadow:0 3px 12px rgba(224,64,90,.35);
+    animation:alertPulse 1.6s ease-in-out infinite;
+  }
+  .submit-alert .sa-sub{display:block;font-size:11px;font-weight:700;opacity:.95;margin-top:2px;}
+  @keyframes alertPulse{
+    0%,100%{transform:scale(1);box-shadow:0 3px 12px rgba(224,64,90,.35);}
+    50%{transform:scale(1.02);box-shadow:0 4px 18px rgba(224,64,90,.55);}
+  }
   .submit-bar .btn{flex:1;padding:14px;font-size:15px;border-radius:16px;}
   .submit-bar .btn-soft{flex:.55;}
 </style>
@@ -387,9 +404,12 @@
 
 <div class="save-state-bar" id="saveState">✅ 保存済み</div>
 <div class="submit-bar" id="submitBar">
-  <button class="btn btn-primary big-submit" id="shiftSubmitBtn">📤 この月のシフトを提出する</button>
+  <div class="submit-alert" id="submitAlert" style="display:none"></div>
+  <div class="submit-bar-btns">
+    <button class="btn btn-primary big-submit" id="shiftSubmitBtn">📤 この月のシフトを提出する</button>
+    <button class="btn btn-primary big-submit" id="crSubmitBtn" style="display:none">📤 変更リクエストを提出（<span id="crSubmitCount">0</span>日）</button>
+  </div>
   <button class="btn" id="withdrawBtn" style="display:none;width:100%;margin-top:8px;padding:12px;border:2px solid #FFD3A6;border-radius:14px;background:#FFF8F0;color:#D2691E;font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;">↩️ 提出を取り下げて編集する</button>
-  <button class="btn btn-primary big-submit" id="crSubmitBtn" style="display:none">📤 変更リクエストを提出（<span id="crSubmitCount">0</span>日）</button>
 </div>
 
 <div id="blockingOverlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;z-index:2147483647;background:rgba(20,20,30,.5);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);align-items:center;justify-content:center;flex-direction:column;touch-action:none;overscroll-behavior:contain;" onclick="event.stopPropagation();event.preventDefault();" ontouchstart="event.preventDefault();" ontouchmove="event.preventDefault();">
@@ -1625,6 +1645,45 @@ const CastApp = (function(){
         wBtn.style.display='none';
       }
     }
+
+    updateSubmitAlert();
+  }
+
+  /* ★ 押し忘れ防止：未提出のものがあれば画面下に赤い警告バーを出す
+     対象：シフト提出／変更リクエスト／長期休暇申請
+     提出すれば自動的に消えるので、ちゃんと押している人には表示されない */
+  function updateSubmitAlert(){
+    const el=document.getElementById('submitAlert');
+    if(!el) return;
+    const weeks=weeksInMonth(viewYM);
+
+    // ① 入力済みだが未提出のシフト日数
+    let unsubDays=0;
+    weeks.forEach(wk=>{
+      const w=Store.getWeek(cast,wk);
+      if(w && w.status==='unsubmitted'){
+        unsubDays += Object.keys(w.shifts||{}).filter(ds=>w.shifts[ds] && w.shifts[ds].start!=null).length;
+      }
+    });
+
+    // ② 未送信の変更リクエスト
+    const crDays = Object.keys(_crPending||{}).length;
+
+    let msg='';
+    if(crDays>0){
+      msg=`⚠️ 変更リクエストがまだ送信されていません`
+        + `<span class="sa-sub">下のボタンを押すと内勤スタッフに届きます（${crDays}日分）</span>`;
+    } else if(unsubDays>0){
+      msg=`⚠️ シフトがまだ提出されていません`
+        + `<span class="sa-sub">入力しただけでは内勤スタッフに届きません。下のボタンを押してください（${unsubDays}日分）</span>`;
+    }
+
+    if(msg){
+      el.innerHTML=msg;
+      el.style.display='block';
+    } else {
+      el.style.display='none';
+    }
   }
 
   function getDayInfo(ds){
@@ -2022,6 +2081,8 @@ const CastApp = (function(){
       // 変更リクエストモード：変更提出ボタンを表示・光らせる／シフト提出は隠す
       if(crBtn){ crBtn.style.display=''; crBtn.classList.add('needs-submit'); }
       if(shiftBtn){ shiftBtn.style.display='none'; shiftBtn.classList.remove('needs-submit'); }
+      // ★ 早期returnするupdateSubmitBtnを通らないので、警告バーはここで更新
+      updateSubmitAlert();
     } else {
       // 通常モード：シフト提出ボタンに戻す
       if(crBtn){ crBtn.style.display='none'; crBtn.classList.remove('needs-submit'); }
