@@ -630,6 +630,7 @@ const AVC = ['av-0','av-1','av-2','av-3','av-4'];
 const STATUS = {
   unsubmitted:      { label:'未提出',     badge:'badge-gray',   locked:false, inbox:false, editable:true  },
   waiting:          { label:'提出済み',   badge:'badge-warning',locked:true,  inbox:true,  editable:false }, // ★提出時にロック（取り下げれば編集可）
+  input_waiting:    { label:'提出済み',   badge:'badge-warning',locked:true,  inbox:false, editable:false }, // 内勤が確認通知済み・チェック前
   inputting:        { label:'内勤入力中', badge:'badge-info',   locked:true,  inbox:false, editable:false }, // 内勤が触ったらロック
   confirmed:        { label:'確定',       badge:'badge-success',locked:true,  inbox:false, editable:false },
   change_requested: { label:'変更申請中', badge:'badge-pink',   locked:true,  inbox:true,  editable:false },
@@ -640,8 +641,9 @@ const STATUS = {
 /* ---------- ステータス遷移ルール ---------- */
 const TRANSITIONS = {
   unsubmitted:      ['waiting'],
-  waiting:          ['inputting','confirmed','unsubmitted'], // キャストが取り下げ可能
-  inputting:        ['confirmed','waiting'],
+  waiting:          ['input_waiting','inputting','confirmed','unsubmitted'], // キャストが取り下げ可能
+  input_waiting:    ['inputting','confirmed','change_requested'],
+  inputting:        ['input_waiting','confirmed','waiting','change_requested'],
   confirmed:        ['change_requested'],
   change_requested: ['change_confirmed','change_inputting','confirmed'],
   change_inputting: ['change_confirmed','confirmed'],
@@ -1762,7 +1764,7 @@ const CastApp = (function(){
       let inner = `<span class="dnum">${d}</span>`;
 
       const st = info.status;
-      if(st==='waiting'||st==='inputting'){ cell.classList.add('st-submitted'); }
+      if(st==='waiting'||st==='input_waiting'||st==='inputting'){ cell.classList.add('st-submitted'); }
       else if(st==='confirmed'||st==='change_confirmed'){ cell.classList.add('st-confirmed'); }
       else if(st==='change_requested'||st==='change_inputting'){ cell.classList.add('st-change'); }
 
@@ -1841,8 +1843,10 @@ const CastApp = (function(){
   function onCellClick(ds, info){
     // 休暇セルはクリック不可
     if(info.vacation) return;
-    // 確定済み・変更申請中 → 変更内容編集ポップアップ（複数日ためる方式）
-    if(info.status==='confirmed' || info.status==='change_confirmed'){
+    // 提出後に内勤が受け取った週（確定/変更確定/入力待ち/内勤入力中）→ 変更申請
+    // ※キャストから見ればどれも「提出して受理された予定」なので、内勤の作業進捗に
+    //   関わらず変更申請できるようにする（8月が入力待ちで申請できない不具合の修正）
+    if(['confirmed','change_confirmed','input_waiting','inputting'].includes(info.status)){
       openCrEditPopup(ds, info);
       return;
     }
@@ -2263,9 +2267,9 @@ const CastApp = (function(){
       const wk=weekKeyOf(ds);
       const w=Store.getWeek(cast,wk);
       if(!w||!w.shifts[ds]) continue;
-      // ★ 受理待ちブロック：change_requested（申請中）の週は追加申請させない
-      //   内勤が受理／却下するまで待つ。連続申請によるデータ欠損・メール連投を防ぐ
-      if(w.status!=='confirmed'&&w.status!=='change_confirmed') continue;
+      // 提出後に内勤が受け取った週を対象にする（確定/変更確定/入力待ち/内勤入力中）
+      // ※change_requested（申請中）は受理待ちブロックのため対象外のまま
+      if(!['confirmed','change_confirmed','input_waiting','inputting'].includes(w.status)) continue;
       if(w.vacations&&w.vacations[ds]) continue;
       const dd=new Date(ds+'T12:00:00');
       candidates.push({ds, dows:dows[(dd.getDay()+6)%7], md:`${dd.getMonth()+1}/${dd.getDate()}`, wk, shift:w.shifts[ds]||null, cr:w.changeRequest&&w.changeRequest[ds]});
