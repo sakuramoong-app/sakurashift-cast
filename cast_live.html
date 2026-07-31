@@ -122,6 +122,8 @@
   .cell.st-confirmed{border-color:var(--mint-deep);}                     /* 確定：緑 */
   .cell.st-change{border-color:var(--pink-deep);}                        /* 変更申請中：ピンク */
   .cell.rest-day{background:#FAFBFC;}
+  /* 休業日：グレーアウトして操作不可にする */
+  .cell.closed-day{background:repeating-linear-gradient(45deg,#F2F4F6,#F2F4F6 6px,#E9ECEF 6px,#E9ECEF 12px);color:#B8C2CC;cursor:not-allowed;opacity:.75;}
   .cell.today{box-shadow:0 0 0 3px var(--sky);}
   .cell.selected{background:linear-gradient(160deg,#FFE6F1,#FFD3E6)!important;border-color:var(--pink-deep)!important;box-shadow:0 0 0 2px var(--pink-deep);transform:scale(1.04);}
   .cell .ico{position:absolute;top:2px;right:3px;font-size:10px;}
@@ -146,11 +148,6 @@
   .apply-btn{padding:10px 16px;border:none;border-radius:12px;background:linear-gradient(135deg,var(--mint),var(--mint-deep));color:#fff;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;white-space:nowrap;}
   .apply-btn:active{transform:scale(.95);}
   .tool-hint{font-size:11px;color:var(--text2);font-weight:600;margin-top:8px;text-align:center;}
-  /* 選択した日を取り消す（お休みに） */
-  .cancel-shift-box{margin-top:12px;padding-top:12px;border-top:1.5px dashed var(--line);}
-  .cancel-shift-hint{font-size:11.5px;color:var(--text2);font-weight:600;line-height:1.6;margin-bottom:8px;text-align:center;}
-  .cancel-shift-btn{width:100%;padding:11px;border:2px solid #FFD0D8;border-radius:12px;background:#FFF0F3;color:#E0405A;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;}
-  .cancel-shift-btn:active{transform:scale(.98);}
   .tmpl-row{display:flex;flex-wrap:wrap;gap:7px;}
   .input-tab-row{display:flex;gap:6px;margin-bottom:12px;}
   /* 1日ごと入力の小窓（下からスライドイン） */
@@ -371,11 +368,6 @@
 
     <div class="input-tab-panel" id="inputPanelSingle" style="display:none">
       <div class="tool-hint">📝 カレンダーの日付をタップすると、その日の出勤時間を1日ずつ入力できます。</div>
-    </div>
-
-    <div class="cancel-shift-box">
-      <div class="cancel-shift-hint">🩹 間違えて入力してしまったときは、取り消したい日付をタップして選んでから、下のボタンで取り消せます。</div>
-      <button class="cancel-shift-btn" id="cancelShiftBtn">選択した日を取り消す（お休みに）</button>
     </div>
   </div>
 
@@ -620,6 +612,49 @@ function getBizOfDay(ds, settings){
   return bh.weekly[dow] || {open:12,close:29};
 }
 
+/* ============================================================
+   ★ 営業時間の適用
+   方針：選択肢を営業時間内に絞る／休業日は入力不可／
+        日付をまたぐ一括操作のときだけ警告を出す
+   ============================================================ */
+
+/* 日付を「7/21(火)」形式にする（警告メッセージ用） */
+function mdLabel(ds){
+  const d = new Date(ds+'T12:00:00');
+  return `${d.getMonth()+1}/${d.getDate()}(${DOWNAMES[(d.getDay()+6)%7]})`;
+}
+
+/* その日の営業時間に収まっているか判定
+   戻り値: {ok:true} / {ok:false, closed:true} / {ok:false, reason:'22時閉店'} */
+function checkWithinBiz(ds, start, end, settings){
+  const biz = getBizOfDay(ds, settings);
+  if(!biz) return {ok:false, closed:true, reason:'休業日'};
+  if(start==null || end==null) return {ok:true};   // お休み指定は対象外
+  if(start < biz.open)  return {ok:false, reason:`${hourLabel(biz.open)}時開店`};
+  if(end   > biz.close) return {ok:false, reason:`${hourLabel(biz.close)}時閉店`};
+  return {ok:true};
+}
+
+/* 営業時間に合わせて時間の選択肢を作る
+   ★ 既存の保存値が範囲外でも必ず選択肢に残す。
+     残さないと、開いた瞬間に別の値へ勝手に変わって保存される（データが黙って書き換わる） */
+function fillBizTimeSelect(el, ds, kind, current, settings){
+  if(!el) return;
+  const biz = getBizOfDay(ds, settings) || {open:12, close:29};
+  const from = (kind==='start') ? biz.open     : biz.open + 1;
+  const to   = (kind==='start') ? biz.close-1  : biz.close;
+  const opts = [];
+  for(let h=from; h<=to; h++) opts.push(h);
+  const cur = (current==null || current==='') ? null : Number(current);
+  if(cur!=null && opts.indexOf(cur)<0) opts.push(cur);   // 範囲外の既存値を退避
+  opts.sort((a,b)=>a-b);
+  el.innerHTML = opts.map(h=>{
+    const outside = (h<from || h>to);
+    return `<option value="${h}">${hourLabel(h)}時${outside?'（時間外）':''}</option>`;
+  }).join('');
+  if(cur!=null) el.value = String(cur);
+}
+
 /* ---------- 祝日 ---------- */
 const DOWNAMES = ['月','火','水','木','金','土','日'];
 const AVC = ['av-0','av-1','av-2','av-3','av-4'];
@@ -630,6 +665,7 @@ const AVC = ['av-0','av-1','av-2','av-3','av-4'];
 const STATUS = {
   unsubmitted:      { label:'未提出',     badge:'badge-gray',   locked:false, inbox:false, editable:true  },
   waiting:          { label:'提出済み',   badge:'badge-warning',locked:true,  inbox:true,  editable:false }, // ★提出時にロック（取り下げれば編集可）
+  input_waiting:    { label:'入力待ち',   badge:'badge-warning',locked:true,  inbox:false, editable:false }, // 確認通知済み・チェック0件
   inputting:        { label:'内勤入力中', badge:'badge-info',   locked:true,  inbox:false, editable:false }, // 内勤が触ったらロック
   confirmed:        { label:'確定',       badge:'badge-success',locked:true,  inbox:false, editable:false },
   change_requested: { label:'変更申請中', badge:'badge-pink',   locked:true,  inbox:true,  editable:false },
@@ -640,8 +676,9 @@ const STATUS = {
 /* ---------- ステータス遷移ルール ---------- */
 const TRANSITIONS = {
   unsubmitted:      ['waiting'],
-  waiting:          ['inputting','confirmed','unsubmitted'], // キャストが取り下げ可能
-  inputting:        ['confirmed','waiting'],
+  waiting:          ['input_waiting','inputting','confirmed','unsubmitted'], // キャストが取り下げ可能
+  input_waiting:    ['inputting','confirmed'],
+  inputting:        ['input_waiting','confirmed','waiting'],
   confirmed:        ['change_requested'],
   change_requested: ['change_confirmed','change_inputting','confirmed'],
   change_inputting: ['change_confirmed','confirmed'],
@@ -1752,6 +1789,8 @@ const CastApp = (function(){
       if(dow===5)cell.classList.add('sat');
       if(dow===6)cell.classList.add('sun');
       if(ds===todayStr)cell.classList.add('today');
+      // ★ 休業日はグレーアウトして入力させない
+      if(!getBizOfDay(ds, Store.getSettings())) cell.classList.add('closed-day');
 
       const isPast = ds < stampBaseStr;
       const hasWork = info.shift && info.shift.start!=null;
@@ -1841,6 +1880,11 @@ const CastApp = (function(){
   function onCellClick(ds, info){
     // 休暇セルはクリック不可
     if(info.vacation) return;
+    // ★ 休業日はクリック不可（入力させない）
+    if(!getBizOfDay(ds, Store.getSettings())){
+      toast('この日はお休み（休業日）です');
+      return;
+    }
     // 確定済み・変更申請中 → 変更内容編集ポップアップ（複数日ためる方式）
     if(info.status==='confirmed' || info.status==='change_confirmed'){
       openCrEditPopup(ds, info);
@@ -1896,12 +1940,17 @@ const CastApp = (function(){
         </div>
       </div>`;
     document.body.appendChild(modal);
-    // 時刻プルダウン生成（12〜28時 / 13〜29時）
+    // 時刻プルダウン生成（★その日の営業時間内に絞る／既存値が時間外でも選択肢に残す）
     const ss=modal.querySelector('#sdStart'), es=modal.querySelector('#sdEnd');
-    for(let h=12;h<=28;h++){const lbl=h>=25?(h-24)+'(翌)':String(h);ss.innerHTML+=`<option value="${h}">${lbl}時</option>`;}
-    for(let h=13;h<=29;h++){const lbl=h>=25?(h-24)+'(翌)':String(h);es.innerHTML+=`<option value="${h}">${lbl}時</option>`;}
-    ss.value = cur?cur.start:18;
-    es.value = cur?cur.end:24;
+    const _bizSet = Store.getSettings();
+    fillBizTimeSelect(ss, ds, 'start', cur?cur.start:null, _bizSet);
+    fillBizTimeSelect(es, ds, 'end',   cur?cur.end:null,   _bizSet);
+    if(!cur){
+      // 新規入力時の初期値（18時〜24時）を営業時間内に収める
+      const _b = getBizOfDay(ds, _bizSet) || {open:12, close:29};
+      ss.value = String(Math.min(Math.max(18, _b.open), _b.close-1));
+      es.value = String(Math.max(Math.min(24, _b.close), _b.open+1));
+    }
     // スライドイン
     requestAnimationFrame(()=>modal.querySelector('.sd-sheet').classList.add('open'));
     const close=()=>{ modal.querySelector('.sd-sheet').classList.remove('open'); setTimeout(()=>modal.remove(),200); };
@@ -2020,9 +2069,9 @@ const CastApp = (function(){
 
     const startSel=modal.querySelector('#crEditStart');
     const endSel=modal.querySelector('#crEditEnd');
-    for(let h=12;h<=28;h++){const lbl=h>=25?(h-24)+'(翌)':String(h);startSel.innerHTML+=`<option value="${h}">${lbl}時</option>`;}
-    for(let h=13;h<=29;h++){const lbl=h>=25?(h-24)+'(翌)':String(h);endSel.innerHTML+=`<option value="${h}">${lbl}時</option>`;}
-    startSel.value=initStart; endSel.value=initEnd;
+    const _bizSet = Store.getSettings();
+    fillBizTimeSelect(startSel, ds, 'start', initStart, _bizSet);
+    fillBizTimeSelect(endSel,   ds, 'end',   initEnd,   _bizSet);
 
     modal.querySelectorAll('input[name="crEditType"]').forEach(radio=>{
       radio.addEventListener('change',()=>{
@@ -2329,10 +2378,9 @@ const CastApp = (function(){
       const eSel = modal.querySelector(`.cr-end[data-ds="${ds}"]`);
       if(!sSel||!eSel) return;
       const st = editState[ds];
-      sSel.innerHTML=''; eSel.innerHTML='';
-      for(let h=12;h<=28;h++){const lbl=h>=25?(h-24)+'(翌)':String(h);sSel.innerHTML+=`<option value="${h}">${lbl}時</option>`;}
-      for(let h=13;h<=29;h++){const lbl=h>=25?(h-24)+'(翌)':String(h);eSel.innerHTML+=`<option value="${h}">${lbl}時</option>`;}
-      sSel.value=st.start; eSel.value=st.end;
+      const _bizSet = Store.getSettings();
+      fillBizTimeSelect(sSel, ds, 'start', st.start, _bizSet);
+      fillBizTimeSelect(eSel, ds, 'end',   st.end,   _bizSet);
     }
     candidates.forEach(c=>fillTimeSelects(c.ds));
 
@@ -2449,9 +2497,9 @@ const CastApp = (function(){
 
     const startSel=modal.querySelector('#crStart');
     const endSel=modal.querySelector('#crEnd');
-    for(let h=12;h<=28;h++){const lbl=h>=25?(h-24)+'(翌)':String(h);startSel.innerHTML+=`<option value="${h}">${lbl}時</option>`;}
-    for(let h=13;h<=29;h++){const lbl=h>=25?(h-24)+'(翌)':String(h);endSel.innerHTML+=`<option value="${h}">${lbl}時</option>`;}
-    if(info.shift){startSel.value=info.shift.start;endSel.value=info.shift.end;}
+    const _bizSet = Store.getSettings();
+    fillBizTimeSelect(startSel, ds, 'start', info.shift?info.shift.start:null, _bizSet);
+    fillBizTimeSelect(endSel,   ds, 'end',   info.shift?info.shift.end:null,   _bizSet);
 
     modal.querySelectorAll('input[name="crType"]').forEach(radio=>{
       radio.addEventListener('change',()=>{
@@ -2544,8 +2592,27 @@ const CastApp = (function(){
   }
 
   async function applyShiftToDays(dsList, start, end){
-    let okCount=0, ng=[], lockedCount=0;
+    /* ★ 営業時間チェック（日付をまたぐ一括操作のときだけ確認する）
+       ・休業日     … 登録対象から外す（入力不可）
+       ・営業時間外 … 件数と理由を出して本人に確認を取る */
+    const _bizSet = Store.getSettings();
+    const closedList = [], outsideList = [], targets = [];
     dsList.forEach(ds=>{
+      const c = checkWithinBiz(ds, start, end, _bizSet);
+      if(c.closed){ closedList.push(ds); return; }          // 休業日は登録しない
+      if(!c.ok) outsideList.push(`・${mdLabel(ds)} ${c.reason}`);
+      targets.push(ds);
+    });
+    if(outsideList.length > 0){
+      const head = outsideList.slice(0,6).join('\n');
+      const more = outsideList.length>6 ? `\nほか${outsideList.length-6}日` : '';
+      if(!confirm(`営業時間外の日が${outsideList.length}日あります。\n\n${head}${more}\n\nこのまま登録しますか？`)){
+        return {okCount:0, ng:[], lockedCount:0, closedCount:closedList.length, canceled:true};
+      }
+    }
+
+    let okCount=0, ng=[], lockedCount=0;
+    targets.forEach(ds=>{
       const r = Store.dispatch('SET_SHIFT',{cast, ds, start, end});
       if(r && r.ok) okCount++;
       else {
@@ -2558,7 +2625,7 @@ const CastApp = (function(){
     const ok = await GasBridge.flushNow();
     setSaveState(ok ? 'saved' : 'error');
     render();
-    return {okCount, ng, lockedCount};
+    return {okCount, ng, lockedCount, closedCount:closedList.length};
   }
 
   async function applyByDow(dows, start, end){
@@ -3232,25 +3299,17 @@ document.getElementById('dowApply').addEventListener('click',async ()=>{
   const s=+document.getElementById('dowStart').value,e=+document.getElementById('dowEnd').value;
   if(s>=e){CastApp.toast('退勤は出勤より後に設定してください');return;}
   const r=await CastApp.applyByDow(dows,s,e);
+  if(r.canceled){ CastApp.toast('登録を中止しました'); return; }
+  const _cl = r.closedCount>0 ? `（休業日の${r.closedCount}日は除く）` : '';
   if(r.okCount===0){
     if(r.lockedCount>0) CastApp.toast('🔒 該当日は提出済みのため変更できません。「提出を取り下げて編集する」を押すか、変更リクエストをご利用ください');
+    else if(r.closedCount>0) CastApp.toast(`対象日はすべて休業日でした（${r.closedCount}日）`);
     else CastApp.toast('対象の日がありませんでした');
   } else {
-    CastApp.toast(r.okCount+'日分を入力しました✨'+(r.lockedCount>0?`（提出済みの${r.lockedCount}日は除く）`:''));
+    CastApp.toast(r.okCount+'日分を入力しました✨'+(r.lockedCount>0?`（提出済みの${r.lockedCount}日は除く）`:'')+_cl);
   }
 });
 
-// 選択した日を取り消す（お休みに）— どのタブでも使える共通ボタン
-document.getElementById('cancelShiftBtn').addEventListener('click',async ()=>{
-  const r=await CastApp.cancelSelectedShifts();
-  if(r.canceled>0){
-    CastApp.toast(r.canceled+'日分を取り消しました（お休みに）');
-  } else if(r.selected===0){
-    CastApp.toast('取り消したい日付をタップして選んでください');
-  } else {
-    CastApp.toast('選択した日に入力はありませんでした');
-  }
-});
 // ===== よく使うシフト テンプレート（localStorage保存） =====
 function _tmplKey(){ return 'sg_templates_'+(sessionStorage.getItem('castName')||''); }
 function getTemplates(){
@@ -3282,11 +3341,13 @@ function renderTemplates(){
     // タップで反映
     btn.addEventListener('click',async ()=>{
       const r=await CastApp.applyToSelected(t.s,t.e);
+      if(r.canceled){ CastApp.toast('登録を中止しました'); return; }
       if(r.okCount===0){
         if(r.lockedCount>0) CastApp.toast('🔒 提出済みのため変更できません。「提出を取り下げて編集する」を押すか、変更リクエストをご利用ください');
+        else if(r.closedCount>0) CastApp.toast(`選んだ日はすべて休業日でした（${r.closedCount}日）`);
         else CastApp.toast('先に日付を選んでください');
       }
-      else CastApp.toast(r.okCount+'日分にテンプレを反映しました✨');
+      else CastApp.toast(r.okCount+'日分にテンプレを反映しました✨'+(r.closedCount>0?`（休業日の${r.closedCount}日は除く）`:''));
     });
     // 長押しで削除
     let pressTimer=null;
