@@ -1548,12 +1548,17 @@ const GasBridge = {
     }catch(e){ console.warn('募集情報取得エラー', e); return null; }
   },
 
-  async loadNotice(){
+  // マスタを読み込んで state に反映する（営業時間・休業日・お知らせ）
+  // ★以前は notice だけ取り出して settings を捨てていたため、
+  //   キャスト側で営業時間・休業日・特定日が一切効いていなかった
+  async loadMasterForCast(){
     try{
-      // マスタから全体お知らせを取得（PW・メールはサーバー側で除去済み）
       const r = await this._get({action:'loadMaster'});
-      return (r && r.master && r.master.settings && r.master.settings.notice) || null;
-    }catch(e){ console.warn('お知らせ取得エラー', e); return null; }
+      const master = (r && r.master) || null;
+      if(!master) return null;
+      Store.dispatch('LOAD_MASTER', master);   // ★ settings をstateへ（営業時間がここで効くようになる）
+      return (master.settings && master.settings.notice) || null;
+    }catch(e){ console.warn('マスタ取得エラー', e); return null; }
   },
 
   async markRead(castName){
@@ -1587,7 +1592,7 @@ const CastApp = (function(){
         GasBridge.loadMonth(cast, viewYM),
         GasBridge.getNotifications(cast),
         GasBridge.loadRecruitInfo(),
-        GasBridge.loadNotice(),
+        GasBridge.loadMasterForCast(),
       ]);
       notifs = res[1]||[]; recruitInfo = res[2]; noticeText = res[3];
     }catch(e){ loadOk=false; }
