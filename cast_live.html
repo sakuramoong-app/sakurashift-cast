@@ -2604,15 +2604,20 @@ const CastApp = (function(){
     const closedList = [], outsideList = [], targets = [];
     dsList.forEach(ds=>{
       const c = checkWithinBiz(ds, start, end, _bizSet);
-      if(c.closed){ closedList.push(ds); return; }          // 休業日は登録しない
-      if(!c.ok) outsideList.push(`・${mdLabel(ds)} ${c.reason}`);
+      if(c.closed){ closedList.push(ds); return; }                          // 休業日は登録しない
+      if(!c.ok){ outsideList.push(`・${mdLabel(ds)} ${c.reason}`); return; } // ★営業時間外も登録しない
       targets.push(ds);
     });
     if(outsideList.length > 0){
       const head = outsideList.slice(0,6).join('\n');
       const more = outsideList.length>6 ? `\nほか${outsideList.length-6}日` : '';
-      if(!confirm(`営業時間外の日が${outsideList.length}日あります。\n\n${head}${more}\n\nこのまま登録しますか？`)){
-        return {okCount:0, ng:[], lockedCount:0, closedCount:closedList.length, canceled:true};
+      const ret = {okCount:0, ng:[], lockedCount:0, closedCount:closedList.length, outsideCount:outsideList.length, canceled:true};
+      if(targets.length===0){
+        alert(`営業時間外のため登録できません。\n\n${head}${more}`);
+        return ret;
+      }
+      if(!confirm(`営業時間外のため、次の${outsideList.length}日は登録されません。\n\n${head}${more}\n\n残り${targets.length}日を登録しますか？`)){
+        return ret;
       }
     }
 
@@ -2630,7 +2635,7 @@ const CastApp = (function(){
     const ok = await GasBridge.flushNow();
     setSaveState(ok ? 'saved' : 'error');
     render();
-    return {okCount, ng, lockedCount, closedCount:closedList.length};
+    return {okCount, ng, lockedCount, closedCount:closedList.length, outsideCount:outsideList.length};
   }
 
   async function applyByDow(dows, start, end){
@@ -3297,6 +3302,33 @@ function fillTimeSelect(el,from,to,def){el.innerHTML='';for(let h=from;h<=to;h++
 fillTimeSelect(document.getElementById('dowStart'),12,28,17);
 fillTimeSelect(document.getElementById('dowEnd'),13,29,24);
 
+/* ★ 選択した曜日の営業時間に合わせてプルダウンを絞る
+   複数曜日を選んだ場合は「全曜日で共通して営業している範囲」に限定する
+   （例：月22時まで＋火29時まで → 22時までしか選べない） */
+function refreshDowTimeSelects(){
+  const ss=document.getElementById('dowStart'), es=document.getElementById('dowEnd');
+  if(!ss||!es) return;
+  const dows=[...document.querySelectorAll('#dowRow input:checked')].map(c=>+c.value);
+  const bh=getBizHours(Store.getSettings());
+  let open=12, close=29;
+  if(dows.length){
+    const opens=[], closes=[];
+    dows.forEach(d=>{
+      const w=bh.weekly[d]||{};
+      opens.push(typeof w.open==='number'?w.open:12);
+      closes.push(typeof w.close==='number'?w.close:29);
+    });
+    open=Math.max.apply(null,opens);
+    close=Math.min.apply(null,closes);
+    if(!(close>open+0)){ open=12; close=29; }   // 範囲が破綻したら既定へ戻す
+  }
+  const clamp=(v,lo,hi)=>Math.min(Math.max(v,lo),hi);
+  const curS=parseInt(ss.value,10)||17, curE=parseInt(es.value,10)||24;
+  fillTimeSelect(ss, open,   close-1, clamp(curS, open,   close-1));
+  fillTimeSelect(es, open+1, close,   clamp(curE, open+1, close));
+}
+document.querySelectorAll('#dowRow input').forEach(c=>c.addEventListener('change', refreshDowTimeSelects));
+
 // 曜日一括
 document.getElementById('dowApply').addEventListener('click',async ()=>{
   const dows=[...document.querySelectorAll('#dowRow input:checked')].map(c=>+c.value);
@@ -3305,7 +3337,8 @@ document.getElementById('dowApply').addEventListener('click',async ()=>{
   if(s>=e){CastApp.toast('退勤は出勤より後に設定してください');return;}
   const r=await CastApp.applyByDow(dows,s,e);
   if(r.canceled){ CastApp.toast('登録を中止しました'); return; }
-  const _cl = r.closedCount>0 ? `（休業日の${r.closedCount}日は除く）` : '';
+  const _cl = (r.closedCount>0 ? `（休業日の${r.closedCount}日は除く）` : '')
+            + (r.outsideCount>0 ? `（営業時間外の${r.outsideCount}日は除く）` : '');
   if(r.okCount===0){
     if(r.lockedCount>0) CastApp.toast('🔒 該当日は提出済みのため変更できません。「提出を取り下げて編集する」を押すか、変更リクエストをご利用ください');
     else if(r.closedCount>0) CastApp.toast(`対象日はすべて休業日でした（${r.closedCount}日）`);
@@ -3352,7 +3385,9 @@ function renderTemplates(){
         else if(r.closedCount>0) CastApp.toast(`選んだ日はすべて休業日でした（${r.closedCount}日）`);
         else CastApp.toast('先に日付を選んでください');
       }
-      else CastApp.toast(r.okCount+'日分にテンプレを反映しました✨'+(r.closedCount>0?`（休業日の${r.closedCount}日は除く）`:''));
+      else CastApp.toast(r.okCount+'日分にテンプレを反映しました✨'
+        +(r.closedCount>0?`（休業日の${r.closedCount}日は除く）`:'')
+        +(r.outsideCount>0?`（営業時間外の${r.outsideCount}日は除く）`:''));
     });
     // 長押しで削除
     let pressTimer=null;
