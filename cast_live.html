@@ -1495,6 +1495,33 @@ function buildStaffMailHtml(castName, message, tag){
 /* ★ 保存が失敗したことを確実に伝える
    セッション切れだと保存が全部失敗するのに小さな表示しか出ず、
    「操作したのに保存されていない」ことに気づけなかったため。 */
+/* ============================================================
+   ★ 保存できなかった記録を残す仕組み
+   保存が失敗しているときはログ送信も同じ経路なので一緒に失敗する。
+   そこで失敗内容をブラウザに貯めておき、通信が回復したときに送る。
+   ============================================================ */
+const _PENDING_LOG_KEY = 'pendingLogs_v1';
+function _queueFailureLog(entry){
+  try{
+    const arr = JSON.parse(localStorage.getItem(_PENDING_LOG_KEY) || '[]');
+    arr.push(Object.assign({ at: new Date().toISOString() }, entry));
+    localStorage.setItem(_PENDING_LOG_KEY, JSON.stringify(arr.slice(-100)));
+  }catch(e){}
+}
+async function _flushPendingLogs(poster){
+  let arr = [];
+  try{ arr = JSON.parse(localStorage.getItem(_PENDING_LOG_KEY) || '[]'); }catch(e){ return; }
+  if(!arr.length) return;
+  try{
+    const entries = arr.map(function(x){
+      return { type:'SAVE_FAILED', cast:x.cast||'', week:x.week||'',
+               by:x.by||'', detail:'⚠️ ' + (x.at||'').replace('T',' ').slice(0,16) + ' に保存できませんでした（' + (x.reason||'原因不明') + '）' };
+    });
+    const r = await poster({ action:'addLogs', data: JSON.stringify(entries) });
+    if(r && r.success) localStorage.removeItem(_PENDING_LOG_KEY);
+  }catch(e){}
+}
+
 let _saveAlertShown = false;
 function _notifySaveFailure(resp){
   const err = (resp && resp.error) || '';
@@ -1649,7 +1676,7 @@ const GasBridge = {
             Store.dispatch('CLEAR_DIRTY',{key});
             console.info('[merge] 競合をマージして保存しました', cast, wk);
             this._post({action:'addLog', type:'MERGE', cast, week:wk,
-              detail:'⚠️競合を統合して保存 ' + (_dtext || '(差分なし)'), by:_by}).catch(()=>{});
+              detail:'他の人の変更と同時だったため、両方を残して保存しました ' + (_dtext || ''), by:_by}).catch(()=>{});
             if(_entries.length) this._post({action:'addLogs', data:JSON.stringify(_entries)}).catch(()=>{});
           }else{
             allOk=false; console.warn('[merge] 再保存に失敗。次回リトライします', key, resp2);
@@ -1657,13 +1684,18 @@ const GasBridge = {
           }
         }else if(resp && resp.success){
           Store.setBaseSnapshot(cast, wk, data);   // ★ 保存できた内容を新しい基準にする
+          _flushPendingLogs(this._post.bind(this));   // ★ 通信が回復したので失敗記録を送る
           Store.dispatch('CLEAR_DIRTY',{key});
           if(_entries.length){
             // ★ 媒体1件ずつを1回の通信でまとめて送る（通信回数を増やさない）
             this._post({action:'addLogs', data:JSON.stringify(_entries)}).catch(()=>{});
           }
         }
-        else { allOk=false; console.warn('保存失敗', key, resp); _notifySaveFailure(resp); }
+        else {
+          allOk=false; console.warn('保存失敗', key, resp); _notifySaveFailure(resp);
+          _queueFailureLog({cast, week:wk, by:(sessionStorage.getItem('castName')||cast),
+                            reason:(resp && resp.error) || '通信エラー'});
+        }
       }catch(e){
         allOk=false; console.warn('保存通信エラー', key, e);
       }
@@ -3988,6 +4020,17 @@ if(_nameEl2) _nameEl2.textContent = _castNameFromUrl;
   }catch(e){ console.warn('メールアドレス読込エラー',e); }
 })();
 
+
+/* ★ 未保存のまま閉じようとしたら警告する（唯一の実質的なデータ消失を防ぐ） */
+window.addEventListener('beforeunload', function(e){
+  try{
+    if(typeof Store !== 'undefined' && Store.getDirtyKeys && Store.getDirtyKeys().length > 0){
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
+    }
+  }catch(_){ }
+});
 </script>
 </body>
 </html>
