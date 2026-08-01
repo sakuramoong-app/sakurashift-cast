@@ -2812,6 +2812,27 @@ const CastApp = (function(){
       targets.push({ds, start:s2, end:e2});
     });
 
+    /* ★ 営業時間に合わせて自動で切り詰めた日がある場合は、
+       勝手に変わったと感じさせないよう、内容を見せて確認を取る */
+    if(adjustedList.length > 0 || impossibleList.length > 0){
+      const lines = [];
+      targets.forEach(t=>{
+        if(adjustedList.indexOf(t.ds) >= 0){
+          lines.push(`・${mdLabel(t.ds)}　${hourLabel(start)}時〜${hourLabel(end)}時 → ${hourLabel(t.start)}時〜${hourLabel(t.end)}時`);
+        }
+      });
+      impossibleList.forEach(ds=>{
+        lines.push(`・${mdLabel(ds)}　営業時間と重ならないため登録しません`);
+      });
+      const head = lines.slice(0,8).join('\n');
+      const more = lines.length>8 ? `\nほか${lines.length-8}日` : '';
+      const closedNote = closedList.length>0 ? `\n\n※ 休業日の${closedList.length}日は登録しません` : '';
+      if(!confirm(`営業時間に合わせて、次のとおり自動で調整します。\n\n${head}${more}${closedNote}\n\nこの内容で登録しますか？`)){
+        return {okCount:0, ng:[], lockedCount:0,
+                closedCount:closedList.length, adjustedCount:0, impossibleCount:0, canceled:true};
+      }
+    }
+
     let okCount=0, ng=[], lockedCount=0;
     targets.forEach(t=>{
       const r = Store.dispatch('SET_SHIFT',{cast, ds:t.ds, start:t.start, end:t.end});
@@ -3509,6 +3530,7 @@ document.getElementById('dowApply').addEventListener('click',async ()=>{
   const s=+document.getElementById('dowStart').value,e=+document.getElementById('dowEnd').value;
   if(s>=e){CastApp.toast('退勤は出勤より後に設定してください');return;}
   const r=await CastApp.applyByDow(dows,s,e);
+  if(r.canceled){ CastApp.toast('登録を中止しました'); return; }
   const _cl = (r.closedCount>0     ? `（休業日の${r.closedCount}日は除く）` : '')
             + (r.impossibleCount>0 ? `（営業時間と合わない${r.impossibleCount}日は除く）` : '')
             + (r.adjustedCount>0   ? `⏰${r.adjustedCount}日は営業時間に合わせて調整しました` : '');
@@ -3553,6 +3575,7 @@ function renderTemplates(){
     // タップで反映
     btn.addEventListener('click',async ()=>{
       const r=await CastApp.applyToSelected(t.s,t.e);
+      if(r.canceled){ CastApp.toast('登録を中止しました'); return; }
       if(r.okCount===0){
         if(r.lockedCount>0) CastApp.toast('🔒 提出済みのため変更できません。「提出を取り下げて編集する」を押すか、変更リクエストをご利用ください');
         else if(r.closedCount>0) CastApp.toast(`選んだ日はすべて休業日でした（${r.closedCount}日）`);
@@ -3711,10 +3734,16 @@ function _rrect(ctx, x, y, w, h, r){
 
 function generateShiftCanvas(){
   const T = SNAP_THEMES[_snapTheme];
+  /* ★ 解像度を2倍にする（写メ日記に載せたとき文字が読みづらかったため）
+     実際の画像は 2160×2160 で書き出すが、描画の座標は今まで通り 1080 基準で書ける。
+     ctx.scale で全体を拡大しているので、文字・線・角丸すべてが一緒に高精細になる。
+     ※ レイアウトの数値を1つずつ2倍にする必要はない（漏れると崩れるため） */
+  const SCALE = 2;
   const SIZE = 1080, PAD = 44;
   const canvas = document.createElement('canvas');
-  canvas.width = SIZE; canvas.height = SIZE;
+  canvas.width = SIZE * SCALE; canvas.height = SIZE * SCALE;
   const ctx = canvas.getContext('2d');
+  ctx.scale(SCALE, SCALE);
   const castName = CastApp.getCastName();
   const ym = CastApp.getViewYM();
   const [year, mon] = ym.split('-').map(Number);
