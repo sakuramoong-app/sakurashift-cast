@@ -3850,17 +3850,181 @@ function generateShiftCanvas(){
   return canvas;
 }
 
-document.getElementById('snapBtn').addEventListener('click',()=>{
+/* ============================================================
+   スタンプ付きプレビュー
+   カレンダー画像を先に表示し、好きな位置にスタンプを置いてから保存する。
+   ・スタンプ画像はリポジトリの stamps/ に置く（stamp01.png 〜）
+   ・座標は1080基準の「論理座標」で持ち、表示・書き出し時に倍率を掛ける
+     （画面幅が変わってもズレない）
+   ============================================================ */
+const STAMP_COUNT = 18;
+const STAMP_DIR = 'stamps/';
+// 日付マス1個ぶん（マス幅約142・高さ約134）に収まる大きさを既定にする
+const STAMP_DEFAULT = 125;
+const CANVAS_LOGICAL = 1080;
+
+let _placedStamps = [];   // {src, x, y, size}  x,yは中心の論理座標
+let _selStamp = -1;
+let _previewCanvas = null;
+
+function openSnapPreview(){
+  const ex=document.getElementById('snapModal'); if(ex) ex.remove();
+  let canvas;
+  try{ canvas = generateShiftCanvas(); }
+  catch(e){ CastApp.toast('画像生成に失敗しました'); console.error(e); return; }
+  _previewCanvas = canvas;
+  _placedStamps = []; _selStamp = -1;
+
+  const m=document.createElement('div');
+  m.id='snapModal';
+  m.style.cssText='position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;padding:12px';
+  m.innerHTML=`
+    <div style="position:absolute;inset:0;background:rgba(0,0,0,.55)" id="snapBg"></div>
+    <div style="position:relative;background:#fff;border-radius:20px;padding:14px;max-width:520px;width:100%;max-height:94vh;overflow:auto;box-shadow:0 12px 48px rgba(0,0,0,.25)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-size:15px;font-weight:800;color:var(--text)">📸 画像を保存</div>
+        <button id="snapClose" style="border:none;background:none;font-size:20px;cursor:pointer;color:var(--text2)">✕</button>
+      </div>
+
+      <div id="snapStage" style="position:relative;width:100%;border-radius:14px;overflow:hidden;touch-action:none;background:#FAFBFC">
+        <div id="snapCanvasHolder" style="width:100%;display:block"></div>
+        <div id="snapLayer" style="position:absolute;inset:0"></div>
+      </div>
+
+      <div id="stampTools" style="display:none;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:11.5px;color:var(--text2);font-weight:800">選択中のスタンプ</span>
+        <button class="st-tool" data-a="small">🔍➖ 小さく</button>
+        <button class="st-tool" data-a="big">🔍➕ 大きく</button>
+        <button class="st-tool" data-a="flip">↔️ 反転</button>
+        <button class="st-tool" data-a="del" style="border-color:#FFB9B9;color:#E05260;background:#FFF5F5">🗑️ 消す</button>
+      </div>
+
+      <div style="margin-top:10px;font-size:11.5px;color:var(--text2);font-weight:800">スタンプを選んで、指で好きな位置へ動かせます</div>
+      <div id="stampPalette" style="display:flex;gap:6px;overflow-x:auto;padding:8px 2px;margin-top:4px"></div>
+
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button id="snapSave" style="flex:1;padding:13px;border:none;border-radius:14px;background:linear-gradient(135deg,var(--pink),var(--pink-deep));color:#fff;font-weight:800;font-size:15px;cursor:pointer;font-family:inherit">この内容で保存</button>
+        <button id="snapClear" style="padding:13px 16px;border:2px solid var(--line);border-radius:14px;background:#fff;color:var(--text2);font-weight:800;font-size:13px;cursor:pointer;font-family:inherit">全部消す</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+
+  // プレビュー用にcanvasを表示（実物は高解像度、表示は画面幅に合わせる）
+  const holder=m.querySelector('#snapCanvasHolder');
+  canvas.style.cssText='width:100%;height:auto;display:block';
+  holder.appendChild(canvas);
+
+  // スタンプ一覧
+  const pal=m.querySelector('#stampPalette');
+  for(let i=1;i<=STAMP_COUNT;i++){
+    const src=`${STAMP_DIR}stamp${String(i).padStart(2,'0')}.png`;
+    const b=document.createElement('button');
+    b.style.cssText='flex:0 0 auto;width:56px;height:56px;border:2px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;padding:3px';
+    b.innerHTML=`<img src="${src}" alt="" style="width:100%;height:100%;object-fit:contain" onerror="this.parentElement.style.display='none'">`;
+    b.addEventListener('click',()=>_addStamp(src));
+    pal.appendChild(b);
+  }
+
+  m.querySelector('#snapClose').addEventListener('click',()=>m.remove());
+  m.querySelector('#snapBg').addEventListener('click',()=>m.remove());
+  m.querySelector('#snapClear').addEventListener('click',()=>{ _placedStamps=[]; _selStamp=-1; _renderStamps(); });
+  m.querySelector('#snapSave').addEventListener('click',_saveSnapWithStamps);
+  m.querySelectorAll('.st-tool').forEach(b=>{
+    b.style.cssText='padding:7px 11px;border:2px solid var(--line);border-radius:99px;background:#fff;color:var(--text);font-size:11.5px;font-weight:800;cursor:pointer;font-family:inherit';
+    b.addEventListener('click',()=>_stampTool(b.dataset.a));
+  });
+  // 何もないところをタップしたら選択解除
+  m.querySelector('#snapLayer').addEventListener('pointerdown',(e)=>{
+    if(e.target.id==='snapLayer'){ _selStamp=-1; _renderStamps(); }
+  });
+  window.addEventListener('resize', _renderStamps);
+}
+
+function _addStamp(src){
+  // 初期位置は中央。大きさは日付マス1個ぶん
+  _placedStamps.push({src, x:CANVAS_LOGICAL/2, y:CANVAS_LOGICAL/2, size:STAMP_DEFAULT, flip:false});
+  _selStamp=_placedStamps.length-1;
+  _renderStamps();
+}
+
+function _stampTool(a){
+  const st=_placedStamps[_selStamp]; if(!st) return;
+  if(a==='small') st.size=Math.max(40, st.size-22);
+  else if(a==='big') st.size=Math.min(560, st.size+22);
+  else if(a==='flip') st.flip=!st.flip;
+  else if(a==='del'){ _placedStamps.splice(_selStamp,1); _selStamp=-1; }
+  _renderStamps();
+}
+
+function _renderStamps(){
+  const layer=document.getElementById('snapLayer');
+  const stage=document.getElementById('snapStage');
+  if(!layer||!stage) return;
+  const ratio = stage.clientWidth / CANVAS_LOGICAL;   // 表示倍率
+  layer.innerHTML='';
+  _placedStamps.forEach((st,i)=>{
+    const el=document.createElement('img');
+    el.src=st.src;
+    const w=st.size*ratio;
+    el.style.cssText=`position:absolute;width:${w}px;height:auto;left:${st.x*ratio-w/2}px;top:${st.y*ratio-w/2}px;`
+      +`cursor:grab;touch-action:none;user-select:none;`
+      +(st.flip?'transform:scaleX(-1);':'')
+      +(i===_selStamp?'outline:2.5px dashed var(--pink-deep);outline-offset:3px;border-radius:6px;':'');
+    el.draggable=false;
+    el.addEventListener('pointerdown',(e)=>{
+      e.preventDefault(); e.stopPropagation();
+      _selStamp=i; _renderStamps();
+      const r=stage.getBoundingClientRect();
+      const rt=stage.clientWidth/CANVAS_LOGICAL;
+      const move=(ev)=>{
+        st.x=Math.max(0,Math.min(CANVAS_LOGICAL,(ev.clientX-r.left)/rt));
+        st.y=Math.max(0,Math.min(CANVAS_LOGICAL,(ev.clientY-r.top)/rt));
+        _renderStamps();
+      };
+      const up=()=>{ window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',up); };
+      window.addEventListener('pointermove',move);
+      window.addEventListener('pointerup',up);
+    });
+    layer.appendChild(el);
+  });
+  const tools=document.getElementById('stampTools');
+  if(tools) tools.style.display = (_selStamp>=0 ? 'flex' : 'none');
+}
+
+async function _saveSnapWithStamps(){
   try{
-    const canvas=generateShiftCanvas();
+    // 表示用と保存用を分けるため、元の絵をコピーしてからスタンプを焼き込む
+    const src=_previewCanvas;
+    const out=document.createElement('canvas');
+    out.width=src.width; out.height=src.height;
+    const octx=out.getContext('2d');
+    octx.drawImage(src,0,0);
+    const k = out.width / CANVAS_LOGICAL;   // 論理座標 → 実ピクセル
+    for(const st of _placedStamps){
+      const img=await new Promise((res,rej)=>{
+        const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=st.src;
+      });
+      const w=st.size*k;
+      const h=w*(img.height/img.width);
+      const x=st.x*k-w/2, y=st.y*k-h/2;
+      if(st.flip){
+        octx.save(); octx.translate(x+w,y); octx.scale(-1,1);
+        octx.drawImage(img,0,0,w,h); octx.restore();
+      }else{
+        octx.drawImage(img,x,y,w,h);
+      }
+    }
     const ym=CastApp.getViewYM();
     const a=document.createElement('a');
-    a.href=canvas.toDataURL('image/png');
+    a.href=out.toDataURL('image/png');
     a.download=`shift_${ym}_${CastApp.getCastName()}.png`;
     a.click();
     CastApp.toast('画像を保存しました📸');
-  }catch(e){ CastApp.toast('画像生成に失敗しました'); console.error(e); }
-});
+    const m=document.getElementById('snapModal'); if(m) m.remove();
+  }catch(e){ CastApp.toast('保存に失敗しました'); console.error(e); }
+}
+
+document.getElementById('snapBtn').addEventListener('click', openSnapPreview);
 
 document.getElementById('icsBtn').addEventListener('click',()=>{
   try{
