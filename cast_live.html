@@ -958,6 +958,19 @@ const Store = (function(){
   };
 
   const dirty = new Set();
+
+  /* ============================================================
+     ★ 競合対策：基準スナップショット（base）
+     「サーバーから読んだ時点」の週データを控えておく。
+     保存時に競合したら base / 自分の変更 / サーバー最新 を突き合わせ、
+     両方の変更を残してマージする（＝どちらのデータも消さない）。
+     ============================================================ */
+  const baseSnap = {};   // 'cast|wk' -> 読み込み時点の週データ（ディープコピー）
+  function _snapKey(cast, wk){ return cast + '|' + wk; }
+  function setBaseSnapshot(cast, wk, data){
+    try{ baseSnap[_snapKey(cast,wk)] = data ? JSON.parse(JSON.stringify(data)) : null; }catch(e){}
+  }
+  function getBaseSnapshot(key){ return baseSnap[key] || null; }
   let _masterDirty = false;
   const listeners = [];
   const auditQueue = [];
@@ -1005,7 +1018,11 @@ const Store = (function(){
         for(const cast in p.weeks){
           if(!state.weeks[cast]) state.weeks[cast] = {};
           for(const wk in p.weeks[cast]){
+            const key = cast + '|' + wk;
+            // ★ 未保存の変更がある週は上書きしない（保存前の操作が消えるのを防ぐ）
+            if(dirty.has(key)) continue;
             state.weeks[cast][wk] = p.weeks[cast][wk];
+            setBaseSnapshot(cast, wk, p.weeks[cast][wk]);   // ★ マージ用の基準を記録
           }
         }
         break;
@@ -1371,6 +1388,44 @@ const Store = (function(){
   function _notify(){ listeners.forEach(fn=>{ try{fn(state);}catch(e){console.error(e);} }); }
 
   function getDirtyKeys(){ return [...dirty]; }
+
+  /* ============================================================
+     ★ 3-wayマージ
+     base（読込時点）・local（自分の変更後）・server（サーバー最新）を比較し、
+     「自分が触ったところは自分の値、触っていないところはサーバーの値」を採用する。
+     ============================================================ */
+  function _isPlainObj(v){ return !!v && typeof v === 'object' && !Array.isArray(v); }
+  function _eq(a, b){ return JSON.stringify(a) === JSON.stringify(b); }
+
+  function mergeWeek3(base, local, server){
+    base = _isPlainObj(base) ? base : {};
+    local = _isPlainObj(local) ? local : {};
+    server = _isPlainObj(server) ? server : {};
+    const out = {};
+    const keys = {};
+    Object.keys(base).forEach(k=>keys[k]=1);
+    Object.keys(local).forEach(k=>keys[k]=1);
+    Object.keys(server).forEach(k=>keys[k]=1);
+    Object.keys(keys).forEach(function(k){
+      const b = base[k], l = local[k], s = server[k];
+      const lChanged = !_eq(l, b);
+      const sChanged = !_eq(s, b);
+      if(!lChanged){ if(k in server) out[k] = s; return; }
+      if(!sChanged){ if(k in local)  out[k] = l; return; }
+      if(_isPlainObj(b) || _isPlainObj(l) || _isPlainObj(s)){
+        out[k] = mergeWeek3(b, l, s);
+      }else{
+        if(k in local) out[k] = l;
+      }
+    });
+    return out;
+  }
+
+  function applyMergedWeek(cast, wk, data){
+    if(!state.weeks[cast]) state.weeks[cast] = {};
+    state.weeks[cast][wk] = data;
+    setBaseSnapshot(cast, wk, data);
+  }
   function getDirtyWeek(key){
     const [cast,wk] = key.split('|');
     return { cast, wk, data: getWeek(cast,wk) };
@@ -1402,6 +1457,7 @@ const Store = (function(){
     dispatch, subscribe,
     getWeek, getWeekOrEmpty, getCastWeeks, getState,
     getDirtyKeys, getDirtyWeek,
+    getBaseSnapshot, setBaseSnapshot, mergeWeek3, applyMergedWeek,
     getAuditQueue, clearAuditQueue,
     getCastList, getStaffList, getCastStores, getCastAlias, getCastAliases, getSettings,
     isMasterDirty, clearMasterDirty, getMaster,
@@ -1496,8 +1552,32 @@ const GasBridge = {
       const {cast,wk,data} = Store.getDirtyWeek(key);
       if(!data){ Store.dispatch('CLEAR_DIRTY',{key}); continue; }
       try{
-        const resp = await this._post({action:'saveWeek', cast, wk, data:JSON.stringify(data)});
-        if(resp && resp.success){ Store.dispatch('CLEAR_DIRTY',{key}); }
+        /* ★ 競合対策：読込時点の updatedAt を基準として送る。
+           サーバーがそれより新しければ conflict が返り、上書きされない。 */
+        const base = Store.getBaseSnapshot(key);
+        const baseUpdatedAt = (base && base.updatedAt) ? base.updatedAt : '1970-01-01T00:00:00.000Z';
+        const resp = await this._post({action:'saveWeek', cast, wk, data:JSON.stringify(data), baseUpdatedAt});
+
+        if(resp && resp.conflict){
+          // 内勤が先に更新していた → 両方の変更を残してマージし、もう一度保存
+          const merged = Store.mergeWeek3(base, data, resp.serverData);
+          merged.updatedAt = new Date().toISOString();
+          const resp2 = await this._post({
+            action:'saveWeek', cast, wk,
+            data:JSON.stringify(merged),
+            baseUpdatedAt: resp.serverUpdatedAt
+          });
+          if(resp2 && resp2.success){
+            Store.applyMergedWeek(cast, wk, merged);
+            Store.dispatch('CLEAR_DIRTY',{key});
+            console.info('[merge] 競合をマージして保存しました', cast, wk);
+          }else{
+            allOk=false; console.warn('[merge] 再保存に失敗。次回リトライします', key, resp2);
+          }
+        }else if(resp && resp.success){
+          Store.setBaseSnapshot(cast, wk, data);   // ★ 保存できた内容を新しい基準にする
+          Store.dispatch('CLEAR_DIRTY',{key});
+        }
         else { allOk=false; console.warn('保存失敗', key, resp); }
       }catch(e){
         allOk=false; console.warn('保存通信エラー', key, e);
