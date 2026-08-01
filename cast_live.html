@@ -1492,6 +1492,23 @@ function buildStaffMailHtml(castName, message, tag){
    保存のたびに「読み込み時点(base)」と「保存する内容」を比較し、
    チェックや出勤が増えたか・消えたかを1行にまとめてログへ残す。
    ============================================================ */
+/* ★ 保存が失敗したことを確実に伝える
+   セッション切れだと保存が全部失敗するのに小さな表示しか出ず、
+   「操作したのに保存されていない」ことに気づけなかったため。 */
+let _saveAlertShown = false;
+function _notifySaveFailure(resp){
+  const err = (resp && resp.error) || '';
+  if(err === 'SESSION_REQUIRED' || err === 'FORBIDDEN'){
+    if(_saveAlertShown) return;
+    _saveAlertShown = true;
+    alert('⚠️ ログインの有効期限が切れています。\n\nここまでの操作は保存されていません。\n一度ログインし直してから、もう一度操作してください。');
+    return;
+  }
+  if(typeof toast === 'function'){
+    toast('⚠️ 保存できませんでした。通信状況を確認してください');
+  }
+}
+
 function _weekDiff(base, data){
   const b = base || {}, d = data || {};
   const bc = b.checks || {}, dc = d.checks || {};
@@ -1506,6 +1523,23 @@ function _weekDiff(base, data){
   for(const k in bs){ if(!ds[k]) sDel.push(k); }
   return {cAdd, cDel, sAdd, sDel, sChg};
 }
+/* ★ 媒体1件ずつのログ項目を作る（1回の通信でまとめて送る）
+   「いつ・誰が・どの日の・どの媒体を・付けた/外した」を1行ずつ残す。
+   データが消えても、ここから何が起きたか復元できる。 */
+function _weekDiffEntries(df, cast, wk, by){
+  const out = [];
+  const split = (k)=>{ const i=k.indexOf('_'); return i<0 ? [k,''] : [k.slice(0,i), k.slice(i+1)]; };
+  const md = (ds)=>{ const p=String(ds).split('-'); return p.length>=3 ? (+p[1])+'/'+(+p[2]) : ds; };
+  df.cAdd.forEach(k=>{ const a=split(k);
+    out.push({type:'CHECK_ON',  cast, week:wk, by, detail:'☑️ '+md(a[0])+' '+a[1]+' をチェック'}); });
+  df.cDel.forEach(k=>{ const a=split(k);
+    out.push({type:'CHECK_OFF', cast, week:wk, by, detail:'⬜ '+md(a[0])+' '+a[1]+' のチェックが外れた'}); });
+  df.sAdd.forEach(ds=>out.push({type:'SHIFT_ADD', cast, week:wk, by, detail:'🆕 '+md(ds)+' 出勤を追加'}));
+  df.sChg.forEach(ds=>out.push({type:'SHIFT_CHG', cast, week:wk, by, detail:'🔄 '+md(ds)+' 時間を変更'}));
+  df.sDel.forEach(ds=>out.push({type:'SHIFT_DEL', cast, week:wk, by, detail:'🗑️ '+md(ds)+' 出勤が消えた'}));
+  return out;
+}
+
 function _weekDiffText(df, statusBefore, statusAfter){
   const p = [];
   if(df.cAdd.length) p.push('✅チェック+' + df.cAdd.length);
@@ -1589,6 +1623,7 @@ const GasBridge = {
         // ★ 何が増減したかを控えておく（保存成功後にログへ残す）
         const _df = _weekDiff(base, data);
         const _dtext = _weekDiffText(_df, (base&&base.status)||'-', data.status||'-');
+        const _entries = _weekDiffEntries(_df, cast, wk, sessionStorage.getItem('castName') || cast);
         const _by = sessionStorage.getItem('castName') || cast;
         const resp = await this._post({action:'saveWeek', cast, wk, data:JSON.stringify(data), baseUpdatedAt});
 
@@ -1607,17 +1642,20 @@ const GasBridge = {
             console.info('[merge] 競合をマージして保存しました', cast, wk);
             this._post({action:'addLog', type:'MERGE', cast, week:wk,
               detail:'⚠️競合を統合して保存 ' + (_dtext || '(差分なし)'), by:_by}).catch(()=>{});
+            if(_entries.length) this._post({action:'addLogs', data:JSON.stringify(_entries)}).catch(()=>{});
           }else{
             allOk=false; console.warn('[merge] 再保存に失敗。次回リトライします', key, resp2);
+            _notifySaveFailure(resp2);
           }
         }else if(resp && resp.success){
           Store.setBaseSnapshot(cast, wk, data);   // ★ 保存できた内容を新しい基準にする
           Store.dispatch('CLEAR_DIRTY',{key});
-          if(_dtext){
-            this._post({action:'addLog', type:'WEEK_SAVE', cast, week:wk, detail:_dtext, by:_by}).catch(()=>{});
+          if(_entries.length){
+            // ★ 媒体1件ずつを1回の通信でまとめて送る（通信回数を増やさない）
+            this._post({action:'addLogs', data:JSON.stringify(_entries)}).catch(()=>{});
           }
         }
-        else { allOk=false; console.warn('保存失敗', key, resp); }
+        else { allOk=false; console.warn('保存失敗', key, resp); _notifySaveFailure(resp); }
       }catch(e){
         allOk=false; console.warn('保存通信エラー', key, e);
       }
