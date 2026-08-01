@@ -1487,6 +1487,36 @@ function buildStaffMailHtml(castName, message, tag){
     +'</div>';
 }
 
+/* ============================================================
+   ★ 変更内容の記録（原因追跡用）
+   保存のたびに「読み込み時点(base)」と「保存する内容」を比較し、
+   チェックや出勤が増えたか・消えたかを1行にまとめてログへ残す。
+   ============================================================ */
+function _weekDiff(base, data){
+  const b = base || {}, d = data || {};
+  const bc = b.checks || {}, dc = d.checks || {};
+  const bs = b.shifts || {}, ds = d.shifts || {};
+  const cAdd=[], cDel=[], sAdd=[], sDel=[], sChg=[];
+  for(const k in dc){ if(dc[k] && dc[k].checked && !(bc[k] && bc[k].checked)) cAdd.push(k); }
+  for(const k in bc){ if(bc[k] && bc[k].checked && !(dc[k] && dc[k].checked)) cDel.push(k); }
+  for(const k in ds){
+    if(!bs[k]) sAdd.push(k);
+    else if(bs[k].start !== ds[k].start || bs[k].end !== ds[k].end) sChg.push(k);
+  }
+  for(const k in bs){ if(!ds[k]) sDel.push(k); }
+  return {cAdd, cDel, sAdd, sDel, sChg};
+}
+function _weekDiffText(df, statusBefore, statusAfter){
+  const p = [];
+  if(df.cAdd.length) p.push('✅チェック+' + df.cAdd.length);
+  if(df.cDel.length) p.push('❌チェック解除' + df.cDel.length + '件[' + df.cDel.slice(0,8).join(' ') + ']');
+  if(df.sAdd.length) p.push('🆕出勤追加' + df.sAdd.length);
+  if(df.sChg.length) p.push('🔄時間変更' + df.sChg.length);
+  if(df.sDel.length) p.push('🗑️出勤消滅' + df.sDel.length + '件[' + df.sDel.slice(0,8).join(' ') + ']');
+  if(statusBefore !== statusAfter) p.push('状態:' + statusBefore + '→' + statusAfter);
+  return p.join(' / ');
+}
+
 const GasBridge = {
   // ★ リトライ付きfetch（GAS応答の一時的な不安定さに対応）
   async _fetchWithRetry(url, options, maxRetries=2){
@@ -1556,6 +1586,10 @@ const GasBridge = {
            サーバーがそれより新しければ conflict が返り、上書きされない。 */
         const base = Store.getBaseSnapshot(key);
         const baseUpdatedAt = (base && base.updatedAt) ? base.updatedAt : '1970-01-01T00:00:00.000Z';
+        // ★ 何が増減したかを控えておく（保存成功後にログへ残す）
+        const _df = _weekDiff(base, data);
+        const _dtext = _weekDiffText(_df, (base&&base.status)||'-', data.status||'-');
+        const _by = sessionStorage.getItem('castName') || cast;
         const resp = await this._post({action:'saveWeek', cast, wk, data:JSON.stringify(data), baseUpdatedAt});
 
         if(resp && resp.conflict){
@@ -1571,12 +1605,17 @@ const GasBridge = {
             Store.applyMergedWeek(cast, wk, merged);
             Store.dispatch('CLEAR_DIRTY',{key});
             console.info('[merge] 競合をマージして保存しました', cast, wk);
+            this._post({action:'addLog', type:'MERGE', cast, week:wk,
+              detail:'⚠️競合を統合して保存 ' + (_dtext || '(差分なし)'), by:_by}).catch(()=>{});
           }else{
             allOk=false; console.warn('[merge] 再保存に失敗。次回リトライします', key, resp2);
           }
         }else if(resp && resp.success){
           Store.setBaseSnapshot(cast, wk, data);   // ★ 保存できた内容を新しい基準にする
           Store.dispatch('CLEAR_DIRTY',{key});
+          if(_dtext){
+            this._post({action:'addLog', type:'WEEK_SAVE', cast, week:wk, detail:_dtext, by:_by}).catch(()=>{});
+          }
         }
         else { allOk=false; console.warn('保存失敗', key, resp); }
       }catch(e){
