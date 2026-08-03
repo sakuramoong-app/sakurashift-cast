@@ -1587,7 +1587,7 @@ const GasBridge = {
       const busyTimer = setTimeout(()=>{
         try{
           const cl=document.querySelector('.cal-loading');
-          if(cl) cl.innerHTML='<span class="spinner"></span>🌸 混雑しています。少々お待ちください…';
+          if(cl) cl.innerHTML='<span class="spinner"></span>🌸 もう少しお待ちください…';
         }catch(_){}
       }, 3000);
       try{
@@ -1616,7 +1616,7 @@ const GasBridge = {
           // リトライ中は「混雑中」メッセージに切り替え
           try{
             const cl=document.querySelector('.cal-loading');
-            if(cl) cl.innerHTML='<span class="spinner"></span>🌸 混雑中、再試行しています…';
+            if(cl) cl.innerHTML='<span class="spinner"></span>🌸 接続し直しています…';
           }catch(_){}
           await new Promise(r=>setTimeout(r, 1000*(attempt+1)));
         }
