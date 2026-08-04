@@ -1021,8 +1021,8 @@ const Store = (function(){
             const key = cast + '|' + wk;
             // ★ 未保存の変更がある週は上書きしない（保存前の操作が消えるのを防ぐ）
             if(dirty.has(key)) continue;
-            state.weeks[cast][wk] = p.weeks[cast][wk];
-            setBaseSnapshot(cast, wk, p.weeks[cast][wk]);   // ★ マージ用の基準を記録
+            state.weeks[cast][wk] = _cleanupWeek(p.weeks[cast][wk]);
+            setBaseSnapshot(cast, wk, state.weeks[cast][wk]);   // ★ マージ用の基準を記録
           }
         }
         break;
@@ -1397,6 +1397,18 @@ const Store = (function(){
   function _isPlainObj(v){ return !!v && typeof v === 'object' && !Array.isArray(v); }
   function _eq(a, b){ return JSON.stringify(a) === JSON.stringify(b); }
 
+  /* ★ 壊れた出勤データの掃除（2026/08/05）
+     過去のマージ不具合で、消したはずの出勤が中身の無い箱として
+     残ってしまったデータがある。読み書きの前に取り除く。 */
+  function _cleanupWeek(w){
+    if(!w || !w.shifts) return w;
+    for(const ds in w.shifts){
+      const sh = w.shifts[ds];
+      if(!sh || sh.start == null || sh.end == null) delete w.shifts[ds];
+    }
+    return w;
+  }
+
   function mergeWeek3(base, local, server){
     base = _isPlainObj(base) ? base : {};
     local = _isPlainObj(local) ? local : {};
@@ -1412,6 +1424,11 @@ const Store = (function(){
       const sChanged = !_eq(s, b);
       if(!lChanged){ if(k in server) out[k] = s; return; }
       if(!sChanged){ if(k in local)  out[k] = l; return; }
+      /* ★ 削除の扱い（2026/08/05 修正）
+         消したものを再帰マージに回すと空の箱が残り、
+         消したはずの出勤が「お休み」として復活していた。 */
+      if(!(k in local)) return;
+      if(!(k in server)){ out[k] = l; return; }
       if(_isPlainObj(b) || _isPlainObj(l) || _isPlainObj(s)){
         out[k] = mergeWeek3(b, l, s);
       }else{
@@ -1423,7 +1440,7 @@ const Store = (function(){
 
   function applyMergedWeek(cast, wk, data){
     if(!state.weeks[cast]) state.weeks[cast] = {};
-    state.weeks[cast][wk] = data;
+    state.weeks[cast][wk] = _cleanupWeek(data);
     setBaseSnapshot(cast, wk, data);
   }
   function getDirtyWeek(key){
