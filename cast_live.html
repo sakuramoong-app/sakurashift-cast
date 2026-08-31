@@ -1661,7 +1661,36 @@ const GasBridge = {
     return this._fetchWithRetry(CONFIG.GAS_URL, {method:'POST', body:buildBody()}, retries);
   },
 
+  /* ★ 保存の多重実行を防ぐ（2026/08/14）
+     チェックを続けて押すと、前の保存が終わる前に次の保存が始まり、
+     どちらも同じ「基準」を見たまま走るため、
+     片方の変更が失われて「チェックが外れる」現象が起きていた。
+     実行中は次の保存を待たせ、終わったらもう一度まとめて保存する。 */
+  _flushing: false,
+  _flushAgain: false,
+
   async flushNow(){
+    if(this._flushing){
+      // 実行中に呼ばれたら「後でもう一度」だけ記録して、この呼び出しは終える
+      this._flushAgain = true;
+      return true;
+    }
+    this._flushing = true;
+    try{
+      let ok = await this._flushOnce();
+      // 保存中に増えた変更を、続けて保存する（取りこぼし防止）
+      while(this._flushAgain){
+        this._flushAgain = false;
+        const ok2 = await this._flushOnce();
+        ok = ok && ok2;
+      }
+      return ok;
+    } finally {
+      this._flushing = false;
+    }
+  },
+
+  async _flushOnce(){
     const keys = Store.getDirtyKeys();
     let allOk = true;
     for(const key of keys){
@@ -1718,19 +1747,6 @@ const GasBridge = {
       }
     }
     return allOk;
-  },
-
-  /* ★ まとめて取得（2026/08/14）
-     以前は 月データ／通知／募集情報／マスタ を4回に分けて通信していた。
-     GASは1回ごとに起動と往復の待ちが入るため、回数が多いほど体感が遅くなる。
-     1回で全部受け取る。 */
-  async bootstrap(cast, yearMonth){
-    const weeks = weeksInMonth(yearMonth);
-    const r = await this._get({action:'bootstrap', weeks:weeks.join(',')});
-    if(!r || r.error) throw new Error((r && r.error) || 'BOOTSTRAP_FAILED');
-    if(r.master) Store.dispatch('LOAD_MASTER', r.master);
-    if(r.weeks)  Store.dispatch('LOAD_WEEKS', {weeks:{[cast]: r.weeks}});
-    return r;
   },
 
   async loadMonth(cast, yearMonth){
@@ -1814,13 +1830,15 @@ const CastApp = (function(){
     setSaveState('loading');
     // シフト読込と通知・募集情報取得を並列で
     let notifs=[], recruitInfo=null, noticeText=null, loadOk=true;
-    /* ★ 1回の通信で必要なものを全部受け取る（2026/08/14） */
     try{
-      const boot = await GasBridge.bootstrap(cast, viewYM);
-      notifs      = boot.notifications || [];
-      recruitInfo = boot.recruitInfo || null;
-      noticeText  = (boot.master && boot.master.settings && boot.master.settings.notice) || null;
-    }catch(e){ loadOk=false; console.warn('初期読み込みエラー', e); }
+      const res = await Promise.all([
+        GasBridge.loadMonth(cast, viewYM),
+        GasBridge.getNotifications(cast),
+        GasBridge.loadRecruitInfo(),
+        GasBridge.loadMasterForCast(),
+      ]);
+      notifs = res[1]||[]; recruitInfo = res[2]; noticeText = res[3];
+    }catch(e){ loadOk=false; }
     // 読み込み失敗時：再試行案内
     if(!loadOk){
       if(grid) grid.innerHTML=`
