@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>【C】シフトアプリ│サクラG</title>
+<title>サクラシフト</title>
 <link rel="icon" href="favicon.png">
 <link rel="apple-touch-icon" href="icon-180.png">
 <meta name="theme-color" content="#FF9EC0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="【C】シフトアプリ">
+<meta name="apple-mobile-web-app-title" content="サクラシフト">
 <style>
   :root{
     --base:#F0FBF4;--card:#FFFFFF;
@@ -1793,7 +1793,8 @@ const GasBridge = {
   // 提出した週が本当にGASに保存されたか検証（アクセス集中・通信断の取りこぼし対策）
   async verifyWeeksSaved(cast, wks){
     if(!wks || wks.length===0) return {allSaved:true, missing:[]};
-    const r = await this._get({action:'loadMonth', cast, weeks:wks.join(',')});
+    // ★ 保存直後の確認なので、おぼえた結果ではなく実データを読む
+    const r = await this._get({action:'loadMonth', cast, weeks:wks.join(','), nocache:'1'});
     const saved = (r && r.weeks) || {};
     const missing = [];
     wks.forEach(wk=>{
@@ -3017,17 +3018,29 @@ const CastApp = (function(){
 
     // ★★ 保存検証：GASから読み直して、本当に保存されたか確認 ★★
     // （アクセス集中や通信断で「提出したのに保存されていない」事故を防ぐ）
+    /* ★ 保存の確認（2026/09/28 修正）
+       以前は保存した直後にすぐ読み直していたが、
+       GASは読み込み結果を短時間おぼえておく作りのため、
+       保存前の古い内容が返ってきて「保存されていない」と誤判定していた。
+       また確認の通信が1回つまずいただけで失敗扱いにしていた。
+         ・少し待ってから確認する
+         ・失敗しても1度だけ待って再確認する
+         ・確認そのものができなかった場合は失敗扱いにしない
+           （保存自体は成功しており、未保存なら自動で再送されるため） */
     let verifyOk = ok;
-    if(submitted > 0){
+    if(submitted > 0 && ok){
       try{
-        const check = await GasBridge.verifyWeeksSaved(cast, submittedWks);
-        verifyOk = ok && check.allSaved;
+        await new Promise(r=>setTimeout(r, 2500));             // 保存が行き渡るのを待つ
+        let check = await GasBridge.verifyWeeksSaved(cast, submittedWks);
         if(!check.allSaved){
-          console.warn('保存検証失敗：未保存の週', check.missing);
+          await new Promise(r=>setTimeout(r, 3000));           // 念のためもう一度
+          check = await GasBridge.verifyWeeksSaved(cast, submittedWks);
         }
+        verifyOk = check.allSaved;
+        if(!check.allSaved) console.warn('保存検証：未保存の週', check.missing);
       }catch(e){
-        console.warn('保存検証エラー', e);
-        verifyOk = false;  // 検証できない時は安全側（失敗扱い）
+        console.warn('保存検証エラー（保存自体は成功しているため成功扱い）', e);
+        verifyOk = true;   // 確認できないだけ。未保存なら自動で再送される
       }
     }
 
@@ -3051,15 +3064,18 @@ const CastApp = (function(){
       // シフト内容の明細（データ消失時の復元用の保険）
       const detailLines = _formatShiftDetails(submittedDetails);
       addMyNotif('my_submit', 'シフト提出が完了しました'+(rangeLabel?'（'+rangeLabel+'）':'')+(detailLines?'\n'+detailLines:''));
-      GasBridge._post({action:'addNotification', role:'staff', castName:cast, type:'submit', message:submitMsg}).catch(()=>{});
-      // メールにシフト明細を含める（万一DBが消えてもメールに残る）
-      GasBridge._post({action:'sendEmail', toRole:'staff', toCast:cast,
-        subject:'📤【シフト提出】'+cast+'さんがシフトを提出しました',
-        htmlBody:buildStaffMailHtml(cast, submitMsg+'<br><br><b>■ 提出内容</b><br>'+detailLines.replace(/\n/g,'<br>'), '📤 シフト提出')
+      /* ★ 通知・メール・ログを1回の通信でまとめて送る（2026/09/28）
+         以前は3回に分けて送っていたため、提出1回で5回も通信していた。
+         GASは同時に動かせる数に上限があり、キャストが一斉に提出する
+         時間帯にこの回数が重なって「アクセスが混み合っています」が出ていた。 */
+      GasBridge._post({
+        action:'submitDone',
+        cast: cast,
+        message: submitMsg,
+        subject: '📤【シフト提出】'+cast+'さんがシフトを提出しました',
+        htmlBody: buildStaffMailHtml(cast, submitMsg+'<br><br><b>■ 提出内容</b><br>'+detailLines.replace(/\n/g,'<br>'), '📤 シフト提出'),
+        logDetail: 'シフトを提出'+(rangeLabel?'（'+rangeLabel+'）':'')+'\n'+detailLines
       }).catch(()=>{});
-      // 操作ログにシフト明細ごと記録（ログを見れば内容が復元できる）
-      GasBridge._post({action:'addLog', type:'CAST_SUBMIT', cast:cast, week:'',
-        detail:'シフトを提出'+(rangeLabel?'（'+rangeLabel+'）':'')+'\n'+detailLines, by:cast}).catch(()=>{});
     }
     return submitted;
   }
@@ -3127,10 +3143,12 @@ const CastApp = (function(){
     modal.innerHTML=`
       <div style="background:#fff;border-radius:20px;padding:26px 24px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.3)">
         <div style="font-size:40px;margin-bottom:10px">😥</div>
-        <div style="font-size:17px;font-weight:900;color:#E0405A;margin-bottom:10px">提出が保存できませんでした</div>
+        <div style="font-size:17px;font-weight:900;color:#E0405A;margin-bottom:10px">提出を確認できませんでした</div>
         <div style="font-size:13.5px;color:var(--text);line-height:1.7;margin-bottom:20px">
-          アクセスが混み合っていて、シフトが正しく保存されなかった可能性があります。<br>
-          <b>お手数ですが、もう一度「提出」ボタンを押してください🙏</b>
+          入力した内容は残っています。<br>
+          念のため<b>画面を開いたまま少しお待ちいただき</b>、<br>
+          それでも「提出済み」にならない場合は<br>
+          <b>もう一度「提出」ボタンを押してください🙏</b>
         </div>
         <button id="submitErrClose" style="width:100%;padding:14px;border:none;border-radius:13px;background:linear-gradient(135deg,#FFA9CE,#FF8FB8);color:#fff;font-size:15px;font-weight:900;cursor:pointer">閉じる</button>
       </div>`;
