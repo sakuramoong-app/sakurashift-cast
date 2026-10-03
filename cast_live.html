@@ -1723,14 +1723,22 @@ const GasBridge = {
       try{
         /* ★ 競合対策：読込時点の updatedAt を基準として送る。
            サーバーがそれより新しければ conflict が返り、上書きされない。 */
+        /* ★ 基準が無いときは競合チェックをしない（2026/10/03 修正）
+           以前は 1970年 を送っていたため、サーバーのデータは必ずそれより
+           新しいと判定され、本人しか操作していなくても毎回「競合」になっていた。
+           そのたびに通信が2往復に増え、マージで状態が巻き戻るため
+           提出が通らなくなっていた。
+           基準が無い＝比べる相手がないので、素直に保存する。 */
         const base = Store.getBaseSnapshot(key);
-        const baseUpdatedAt = (base && base.updatedAt) ? base.updatedAt : '1970-01-01T00:00:00.000Z';
+        const baseUpdatedAt = (base && base.updatedAt) ? base.updatedAt : '';
         // ★ 何が増減したかを控えておく（保存成功後にログへ残す）
         const _df = _weekDiff(base, data);
         const _dtext = _weekDiffText(_df, (base&&base.status)||'-', data.status||'-');
         const _entries = _weekDiffEntries(_df, cast, wk, sessionStorage.getItem('castName') || cast);
         const _by = sessionStorage.getItem('castName') || cast;
-        const resp = await this._post({action:'saveWeek', cast, wk, data:JSON.stringify(data), baseUpdatedAt});
+        const _payload = {action:'saveWeek', cast, wk, data:JSON.stringify(data)};
+        if(baseUpdatedAt) _payload.baseUpdatedAt = baseUpdatedAt;   // 基準があるときだけ競合チェック
+        const resp = await this._post(_payload);
 
         if(resp && resp.conflict){
           // 内勤が先に更新していた → 両方の変更を残してマージし、もう一度保存
@@ -1791,6 +1799,21 @@ const GasBridge = {
   },
 
   // 提出した週が本当にGASに保存されたか検証（アクセス集中・通信断の取りこぼし対策）
+  /* ★ 提出が通らなかった週を強制的に保存し直す（2026/10/03 追加）
+     提出は本人の明確な意思であり、対象は自分のシフトだけなので、
+     競合チェックを外して確実に書き込む。 */
+  async forceSaveWeeks(cast, wks){
+    if(!wks || !wks.length) return;
+    for(const wk of wks){
+      try{
+        const w = Store.getWeek(cast, wk);
+        if(!w) continue;
+        await this._post({action:'saveWeek', cast, wk, data:JSON.stringify(w), force:'true'});
+        Store.setBaseSnapshot(cast, wk, w);
+      }catch(e){ console.warn('強制保存エラー', wk, e); }
+    }
+  },
+
   async verifyWeeksSaved(cast, wks){
     if(!wks || wks.length===0) return {allSaved:true, missing:[]};
     // ★ 保存直後の確認なので、おぼえた結果ではなく実データを読む
@@ -3030,10 +3053,12 @@ const CastApp = (function(){
     let verifyOk = ok;
     if(submitted > 0 && ok){
       try{
-        await new Promise(r=>setTimeout(r, 2500));             // 保存が行き渡るのを待つ
+        await new Promise(r=>setTimeout(r, 1200));             // 保存が行き渡るのを待つ
         let check = await GasBridge.verifyWeeksSaved(cast, submittedWks);
         if(!check.allSaved){
-          await new Promise(r=>setTimeout(r, 3000));           // 念のためもう一度
+          // 通らなかった週だけ強制保存してから、もう一度確認する
+          await GasBridge.forceSaveWeeks(cast, check.missing);
+          await new Promise(r=>setTimeout(r, 1200));
           check = await GasBridge.verifyWeeksSaved(cast, submittedWks);
         }
         verifyOk = check.allSaved;
