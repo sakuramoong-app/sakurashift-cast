@@ -245,6 +245,14 @@
     animation:alertPulse 1.6s ease-in-out infinite;
   }
   .submit-alert .sa-sub{display:block;font-size:11px;font-weight:700;opacity:.95;margin-top:2px;}
+  /* ★ カレンダー上部の未提出警告：気づいてもらうため点滅させる */
+  @keyframes saBlink{0%,100%{opacity:1;}50%{opacity:.45;}}
+  .submit-alert-top{margin:0 0 10px;animation:saBlink 1.1s ease-in-out infinite;
+    box-shadow:0 4px 16px rgba(224,64,90,.28);border:2px solid #fff;}
+  /* 画面を動かしても見失わないよう、上に貼り付く */
+  .submit-alert-top{position:sticky;top:4px;z-index:40;}
+  /* 動きが苦手な方の端末では点滅させない */
+  @media (prefers-reduced-motion: reduce){ .submit-alert-top{animation:none;} }
   @keyframes alertPulse{
     0%,100%{transform:scale(1);box-shadow:0 3px 12px rgba(224,64,90,.35);}
     50%{transform:scale(1.02);box-shadow:0 4px 18px rgba(224,64,90,.55);}
@@ -304,6 +312,8 @@
     <button class="arrow">‹</button><div class="month-label" id="monthLabel">2026年 6月</div><button class="arrow">›</button>
   </div>
   <div class="month-info-bar" id="monthInfoBar" style="display:none"></div>
+  <!-- ★ 未提出の警告（カレンダーの上）。下にもあるが気づかれにくいため上にも出す -->
+  <div class="submit-alert submit-alert-top" id="submitAlertTop" style="display:none"></div>
   <div class="select-info" id="selectInfo">
     <span id="selectCount">0</span>日 選択中　<button class="select-clear" id="selectClear">選択解除</button>
     <button id="resetShiftBtn" style="display:none;margin-left:4px;padding:5px 12px;border:2px solid #FFB9B9;border-radius:99px;background:#FFF5F5;color:#E05260;font-weight:800;font-size:12px;cursor:pointer;font-family:inherit;">🗑 シフトを消す</button>
@@ -2042,11 +2052,18 @@ const CastApp = (function(){
         + `<span class="sa-sub">入力しただけでは内勤スタッフに届きません。下のボタンを押してください（${unsubDays}日分）</span>`;
     }
 
+    // ★ カレンダー上部にも同じ警告を出す（下だけだと気づかれにくい）
+    const elTop = document.getElementById('submitAlertTop');
     if(msg){
       el.innerHTML=msg;
       el.style.display='block';
+      if(elTop){
+        elTop.innerHTML = msg + `<span class="sa-sub">↓ 画面の一番下にある「提出する」ボタンを押してください</span>`;
+        elTop.style.display='block';
+      }
     } else {
       el.style.display='none';
+      if(elTop) elTop.style.display='none';
     }
   }
 
