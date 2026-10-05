@@ -1850,18 +1850,23 @@ const GasBridge = {
     }
   },
 
+  /* ★ 提出が保存されたかの確認（2026/10/05 修正）
+     以前は「シフトが1件も入っていない週」も失敗扱いにしていた。
+     提出はその月の全週をまとめて行うため、
+     出勤がまったく無い週（全部お休みの週）も対象に含まれる。
+     そういう週は正しく保存されていても shifts が空なので、
+     毎回「保存できませんでした」と出ていた。
+     確認すべきなのは「提出された状態になっているか」だけ。 */
   async verifyWeeksSaved(cast, wks){
     if(!wks || wks.length===0) return {allSaved:true, missing:[]};
-    // ★ 保存直後の確認なので、おぼえた結果ではなく実データを読む
-    const r = await this._get({action:'loadMonth', cast, weeks:wks.join(','), nocache:'1'});
+    const r = await this._get({action:'loadMonth', cast, weeks:wks.join(',')});
     const saved = (r && r.weeks) || {};
     const missing = [];
     wks.forEach(wk=>{
       const w = saved[wk];
-      // 保存されていて、status が waiting か confirmed 系ならOK（unsubmittedや存在しないはNG）
-      const okStatus = w && w.status && w.status!=='unsubmitted';
-      const hasShift = w && w.shifts && Object.keys(w.shifts).some(ds=>w.shifts[ds] && w.shifts[ds].start!=null);
-      if(!okStatus || !hasShift) missing.push(wk);
+      // 提出済み以降の状態になっていればOK（未提出・データ無しはNG）
+      const ok = w && w.status && w.status !== 'unsubmitted';
+      if(!ok) missing.push(wk);
     });
     return { allSaved: missing.length===0, missing };
   },
