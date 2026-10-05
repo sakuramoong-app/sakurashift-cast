@@ -1736,6 +1736,17 @@ const GasBridge = {
 
   async _flushOnce(){
     const keys = Store.getDirtyKeys();
+    /* ★ 複数週をまとめて保存する（2026/10/05 追加）
+       以前は週ごとに1回ずつ通信していた。
+       シフト提出は月に4〜5週あるため、それだけで4〜5往復になり、
+       GASは1回あたり1〜2秒かかるので提出に10秒近くかかっていた。
+       2週以上あるときは1回でまとめて送る。
+       （競合した週だけは、これまでどおり個別にマージして保存し直す） */
+    if(keys.length >= 2){
+      const done = await this._flushBatch(keys);
+      if(done) return done.allOk;
+      // まとめて保存が使えなかった場合は、下の従来処理に進む
+    }
     let allOk = true;
     for(const key of keys){
       const {cast,wk,data} = Store.getDirtyWeek(key);
@@ -1804,6 +1815,84 @@ const GasBridge = {
       }
     }
     return allOk;
+  },
+
+  /* ★ 複数週をまとめて保存（2026/10/05）
+     1回の通信で全部の週を送る。
+     競合した週だけ、あとから個別にマージして保存し直す。
+     使えなかったときは null を返し、呼び出し元が従来の方法に切り替える。 */
+  async _flushBatch(keys){
+    try{
+      const items = [];
+      const meta  = {};
+      let castName = null;
+      for(const key of keys){
+        const {cast,wk,data} = Store.getDirtyWeek(key);
+        if(!data){ Store.dispatch('CLEAR_DIRTY',{key}); continue; }
+        if(castName && cast !== castName) return null;   // 別キャストが混ざるときは従来処理へ
+        castName = cast;
+        const base = Store.getBaseSnapshot(key);
+        const baseUpdatedAt = (base && base.updatedAt) ? base.updatedAt : '';
+        const it = { wk, data };
+        if(baseUpdatedAt) it.baseUpdatedAt = baseUpdatedAt;
+        items.push(it);
+        meta[wk] = { key, cast, data, base,
+                     by: sessionStorage.getItem('castName') || cast };
+      }
+      if(items.length === 0) return { allOk:true };
+
+      const resp = await this._post({
+        action:'saveWeeks', cast: castName, data: JSON.stringify(items)
+      });
+      if(!resp || !resp.success) return null;   // 従来処理に任せる
+
+      let allOk = true;
+      const logEntries = [];
+
+      // 保存できた週
+      (resp.savedWks || []).forEach(wk=>{
+        const m = meta[wk]; if(!m) return;
+        Store.setBaseSnapshot(m.cast, wk, m.data);
+        // 送信中に変わっていたら未保存のまま残す（取りこぼし防止）
+        if(!Store.isSameAsCurrent(m.cast, wk, m.data)) return;
+        Store.dispatch('CLEAR_DIRTY',{key:m.key});
+        const df = _weekDiff(m.base, m.data);
+        const es = _weekDiffEntries(df, m.cast, wk, m.by);
+        if(es.length) logEntries.push.apply(logEntries, es);
+      });
+
+      // 競合した週は、これまでどおり個別にマージして保存し直す
+      for(const cf of (resp.conflicts || [])){
+        const m = meta[cf.wk]; if(!m) continue;
+        const merged = Store.mergeWeek3(m.base, m.data, cf.serverData);
+        merged.updatedAt = new Date().toISOString();
+        const r2 = await this._post({
+          action:'saveWeek', cast:m.cast, wk:cf.wk,
+          data:JSON.stringify(merged), baseUpdatedAt: cf.serverUpdatedAt
+        });
+        if(r2 && r2.success){
+          Store.applyMergedWeek(m.cast, cf.wk, merged);
+          Store.dispatch('CLEAR_DIRTY',{key:m.key});
+          const df = _weekDiff(m.base, m.data);
+          const dtext = _weekDiffText(df, (m.base&&m.base.status)||'-', m.data.status||'-');
+          this._post({action:'addLog', type:'MERGE', cast:m.cast, week:cf.wk,
+            detail:'他の人の変更と同時だったため、両方を残して保存しました ' + (dtext || ''), by:m.by}).catch(()=>{});
+        }else{
+          allOk = false;
+          console.warn('[merge] 再保存に失敗。次回リトライします', cf.wk, r2);
+        }
+      }
+
+      // ログは1回にまとめて送る
+      if(logEntries.length){
+        this._post({action:'addLogs', data:JSON.stringify(logEntries)}).catch(()=>{});
+      }
+      _flushPendingLogs(this._post.bind(this));
+      return { allOk };
+    }catch(e){
+      console.warn('まとめて保存に失敗。従来の方法で保存します', e);
+      return null;
+    }
   },
 
   /* ★ まとめて取得（2026/10/04）
@@ -3113,12 +3202,13 @@ const CastApp = (function(){
     let verifyOk = ok;
     if(submitted > 0 && ok){
       try{
-        await new Promise(r=>setTimeout(r, 1200));             // 保存が行き渡るのを待つ
+        /* ★ 保存はすでに完了しているので、長く待つ必要はない（2026/10/05）
+           以前は1.2秒＋1.2秒待っていたが、そのぶん提出が長く感じられていた。 */
+        await new Promise(r=>setTimeout(r, 400));
         let check = await GasBridge.verifyWeeksSaved(cast, submittedWks);
         if(!check.allSaved){
           // 通らなかった週だけ強制保存してから、もう一度確認する
           await GasBridge.forceSaveWeeks(cast, check.missing);
-          await new Promise(r=>setTimeout(r, 1200));
           check = await GasBridge.verifyWeeksSaved(cast, submittedWks);
         }
         verifyOk = check.allSaved;
