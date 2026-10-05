@@ -3127,10 +3127,20 @@ const CastApp = (function(){
     setSaveState(verifyOk ? 'saved' : 'error');
     render();
 
-    // 保存に失敗（または検証NG）→ エラー表示して通知は送らない
+    /* ★ 検証に失敗したときの扱い（2026/10/05 修正）
+       以前はここで提出を取り消していた（REVERT_SUBMIT）。
+       しかし検証は誤って「保存されていない」と判定することがあり、
+       実際には保存できているのに提出が取り消され、
+       status も submittedAt も消えてしまう事故が起きた。
+       （提出したのに未提出に戻り、ログにも残らない）
+
+       保存自体は成功しているので、提出状態はそのまま残す。
+       万一ほんとうに未保存でも、未保存のまま残るので自動で再送される。
+       利用者には確認できなかったことだけ伝える。 */
     if(submitted > 0 && !verifyOk){
-      // ローカルの提出状態を元に戻す（未提出に）→ 再提出できるように
-      submittedWks.forEach(wk=>Store.dispatch('REVERT_SUBMIT',{cast, wk}));
+      console.warn('提出の確認ができませんでした（提出状態はそのまま残します）', submittedWks);
+      // 念のため、確認できなかった週をもう一度だけ強制保存しておく
+      try{ await GasBridge.forceSaveWeeks(cast, submittedWks); }catch(e){}
       render();
       hideBlocking();
       _showSubmitError();
