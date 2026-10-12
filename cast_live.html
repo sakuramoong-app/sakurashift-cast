@@ -269,6 +269,9 @@
   .submit-bar .btn{flex:1;padding:14px;font-size:15px;border-radius:16px;}
   .submit-bar .btn-soft{flex:.55;}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>window.SHIFT_DB_ROLE='cast';</script>
+<script src="shift_db.js"></script>
 </head>
 <body>
 <div id="confettiLayer" style="position:fixed;inset:0;pointer-events:none;z-index:9999;overflow:hidden;"></div>
@@ -1685,24 +1688,26 @@ const GasBridge = {
     }
     throw lastErr;
   },
+  /* ★ 2026/10 Supabase に引っ越し：GAS ではなく Supabase を直接読み書きする（shift_db.js）
+     action 名と返事の形は GAS のときと同じ。通信が切れたときだけ少し待って送り直す。 */
+  async _db(params, maxRetries){
+    let lastErr;
+    for(let attempt=0; attempt<=maxRetries; attempt++){
+      try{ return await ShiftDB.call(params); }
+      catch(e){
+        lastErr = e;
+        if(attempt < maxRetries) await new Promise(r=>setTimeout(r, 800*(attempt+1)));
+      }
+    }
+    throw lastErr;
+  },
   async _get(params){
-    const sess = sessionStorage.getItem('castSession') || '';
-    const p = Object.assign({token:CONFIG.TOKEN, session:sess, _t:Date.now()}, params);
-    const qs = new URLSearchParams(p).toString();
-    return this._fetchWithRetry(CONFIG.GAS_URL + '?' + qs, {});
+    return this._db(params, 2);
   },
   async _post(params){
-    const buildBody = ()=>{
-      const body = new FormData();
-      for(const k in params) body.append(k, params[k]);
-      body.append('token', CONFIG.TOKEN);
-      body.append('session', sessionStorage.getItem('castSession') || '');
-      return body;
-    };
     // saveWeek等の冪等操作はリトライ（同じデータで上書きなので二重でも安全）
     const idempotent = params.action==='saveWeek' || params.action==='addNotification' || params.action==='sendEmail' || params.action==='saveCastEmail';
-    const retries = idempotent ? 2 : 0;
-    return this._fetchWithRetry(CONFIG.GAS_URL, {method:'POST', body:buildBody()}, retries);
+    return this._db(params, idempotent ? 2 : 0);
   },
 
   /* ★ 保存の多重実行を防ぐ（2026/08/14）
@@ -4444,7 +4449,8 @@ if(logoutBtn)logoutBtn.addEventListener('click',()=>{
 
 // URLパラメータ or sessionStorageからキャスト名取得
 const _urlParams=new URLSearchParams(location.search);
-const _castNameFromUrl=_urlParams.get('name')||sessionStorage.getItem('castName')||'';
+// ★ ログインした本人の名前を先に使う（URLの名前を書きかえても他の人のシフトは見られない）
+const _castNameFromUrl=sessionStorage.getItem('castName')||_urlParams.get('name')||'';
 const _castAuthOk=sessionStorage.getItem('castAuth')==='1';
 // 認証チェック（ローカルファイルは除外）
 if(!_castAuthOk && location.hostname!=='localhost' && location.protocol!=='file:'){
@@ -4457,14 +4463,7 @@ async function saveCastEmail(){
   const email=(input.value||'').trim();
   const castName=CastApp.getCastName();
   try{
-    const body=new FormData();
-    body.append('token','sakura2025shift');
-    body.append('session',sessionStorage.getItem('castSession')||'');
-    body.append('action','saveCastEmail');
-    body.append('castName',castName);
-    body.append('email',email);
-    const res=await fetch('https://script.google.com/macros/s/AKfycbyvlg5JbvPsqxkdvztwRXYBqPkvWjknicwfm2ksTlIxIQ-7N1zd72cn09c6oSNIkIxw/exec',{method:'POST',body});
-    const r=await res.json();
+    const r=await ShiftDB.call({action:'saveCastEmail', castName, email});
     if(r&&r.success){
       CastApp.toast(email?'メールアドレスを登録しました📧':'メールアドレスを削除しました');
     } else { CastApp.toast('保存に失敗しました'); }
@@ -4483,9 +4482,7 @@ if(_nameEl2) _nameEl2.textContent = _castNameFromUrl;
 // 保存済みメールアドレスを入力欄に反映（専用アクションで自分の分のみ取得）
 (async()=>{
   try{
-    const sess=sessionStorage.getItem('castSession')||'';
-    const res=await fetch('https://script.google.com/macros/s/AKfycbyvlg5JbvPsqxkdvztwRXYBqPkvWjknicwfm2ksTlIxIQ-7N1zd72cn09c6oSNIkIxw/exec?token=sakura2025shift&action=getMyEmail&session='+encodeURIComponent(sess)+'&_t='+Date.now());
-    const d=await res.json();
+    const d=await ShiftDB.call({action:'getMyEmail'});
     const input=document.getElementById('castEmailInput');
     if(input&&d.email) input.value=d.email;
   }catch(e){ console.warn('メールアドレス読込エラー',e); }

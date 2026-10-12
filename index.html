@@ -34,6 +34,9 @@
   .spinner{display:inline-block;width:14px;height:14px;border:2px solid #FFE0EC;border-top-color:var(--pink-deep);border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px;margin-right:6px;}
   .hint{font-size:11.5px;color:var(--text2);text-align:center;margin-top:14px;line-height:1.6;}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>window.SHIFT_DB_ROLE='cast';</script>
+<script src="shift_db.js"></script>
 </head>
 <body>
 <div class="card">
@@ -111,16 +114,15 @@ async function doLogin(){
 
   loading.style.display='block';
   try{
-    const hash=await sha256(pw);
-    // GAS側で照合（PWそのものは送らずハッシュを送る）
-    const data=await gasGet({action:'login',role:'cast',name:name,pwHash:hash});
+    // ★ 2026/10 Supabase に引っ越し：Supabase のログインで照合する（PWそのものは送らずハッシュを送る）
+    const data=await ShiftDB.castLogin(name,pw);
     loading.style.display='none';
 
     if(data.success){
-      sessionStorage.setItem('castName',name);
+      sessionStorage.setItem('castName',data.name);
       sessionStorage.setItem('castAuth','1');
-      sessionStorage.setItem('castSession',data.session);  // セッショントークン保存
-      location.href='cast_live.html?name='+encodeURIComponent(name);
+      sessionStorage.setItem('castSession','supabase');
+      location.href='cast_live.html?name='+encodeURIComponent(data.name);
     }else{
       err.textContent=data.message||'ログインに失敗しました';
       err.style.display='block';
@@ -145,6 +147,9 @@ document.getElementById('pwInput').addEventListener('keydown',e=>{
 document.getElementById('nameInput').addEventListener('keydown',e=>{
   if(e.key==='Enter') document.getElementById('pwInput').focus();
 });
+
+// ログイン画面に来たら、このタブの前のログインは捨てる（ログアウト・自動ログアウトのあと）
+ShiftDB.signOutLocal();
 
 // URLパラメータから名前を自動入力
 (()=>{
