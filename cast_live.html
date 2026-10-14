@@ -359,6 +359,24 @@
       <input type="email" class="email-reg-input" id="castEmailInput" placeholder="メールアドレス（任意）">
       <button class="email-reg-btn" onclick="saveCastEmail()">保存</button>
     </div>
+    <!-- 意見箱：アプリの不具合・要望（読むのは店長だけ） -->
+    <div class="email-reg-card" id="fbCard">
+      <div class="email-reg-title">📮 アプリの不具合・要望を送る</div>
+      <div class="email-reg-desc" style="line-height:1.7;">
+        アプリがうまく動かないときや、「こうなったら便利」があれば教えてください。<br>
+        ・読むのは<b>店長だけ</b>です。<b>名前を出さずに</b>送れます。<br>
+        ・<b>お店への不満や、ほかの人の悪口は書かないでください。</b><br>
+        ・悩みごとがあるときは、<b>いつでもスタッフに相談してください。</b>
+      </div>
+      <div id="fbKinds" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;"></div>
+      <textarea id="fbBody" maxlength="2000" placeholder="例：〇〇を押すと、△△になって進めません" style="width:100%;min-height:110px;padding:10px 12px;border-radius:14px;border:2px solid #FFE0EC;font-family:inherit;font-size:14px;color:var(--text);background:#FFF8FC;resize:vertical;"></textarea>
+      <div style="display:flex;flex-direction:column;gap:4px;margin:8px 0;font-size:13px;font-weight:700;">
+        <label><input type="radio" name="fbName" value="" checked> 名前を出さない</label>
+        <label><input type="radio" name="fbName" value="me"> 名前を出す</label>
+      </div>
+      <button class="email-reg-btn" id="fbSend" onclick="sendFeedback()">送る</button>
+      <div id="fbMsg" style="margin-top:8px;font-size:13px;font-weight:800;"></div>
+    </div>
   </div>
 </div>
 <!-- 一括入力パネル -->
@@ -4468,6 +4486,40 @@ async function saveCastEmail(){
       CastApp.toast(email?'メールアドレスを登録しました📧':'メールアドレスを削除しました');
     } else { CastApp.toast('保存に失敗しました'); }
   }catch(e){ CastApp.toast('通信エラー'); }
+}
+
+// 意見箱：アプリの不具合・要望を送る（読むのは店長だけ。名前なしのときは、だれが送ったかを残さない）
+const FB_KINDS=[['bug','🐞 うまく動かない'],['idea','💡 こうしてほしい'],['other','💬 そのほか']];
+// 人を傷つける言葉（Supabase のほうにも同じものがある）
+const FB_BAD=/(死ね|氏ね|シネ|ｼﾈ|殺す|ころす|消えろ|黙れ|きもい|キモい|キモイ|うざい|ウザい|ウザイ|ブス|ブサイク|ぶさいく|不細工|デブ|バカ|馬鹿|アホ|あほ|クズ|クソ|くそ|糞|無能|ガイジ|池沼|キチガイ|きちがい|基地外|ハゲ|淫乱|ヤリマン|ビッチ)/i;
+let fbKind='';
+function renderFbKinds(){
+  const el=document.getElementById('fbKinds'); if(!el) return;
+  el.innerHTML=FB_KINDS.map(k=>`<button type="button" onclick="fbKind='${k[0]}';renderFbKinds()" style="border:2px solid ${fbKind===k[0]?'var(--pink-deep)':'#FFE0EC'};background:${fbKind===k[0]?'var(--pink-deep)':'#fff'};color:${fbKind===k[0]?'#fff':'var(--text2)'};border-radius:99px;padding:6px 12px;font-family:inherit;font-size:12.5px;font-weight:800;cursor:pointer;">${k[1]}</button>`).join('');
+}
+renderFbKinds();
+async function sendFeedback(){
+  const msg=document.getElementById('fbMsg');
+  const say=(t,ok)=>{ msg.textContent=t; msg.style.color=ok?'#2f9e6e':'#E05260'; };
+  const body=(document.getElementById('fbBody').value||'').trim();
+  if(!fbKind) return say('「うまく動かない／こうしてほしい／そのほか」を選んでください');
+  if(!body) return say('内容を書いてください');
+  if(FB_BAD.test(body)) return say('人を傷つける言葉が入っているため送れません。言い方を変えてください。');
+  const named=document.querySelector('input[name=fbName]:checked').value==='me';
+  const btn=document.getElementById('fbSend'); btn.disabled=true; say('送っています…',true);
+  try{
+    const { data, error }=await ShiftDB.client.rpc('fb_submit',{ p_kind:fbKind, p_app:'サクラシフト（キャスト）', p_body:body, p_name:named?'me':'' });
+    if(error) throw error;
+    if(data&&data.error){
+      const M={ unauthorized:'ログインが切れています。もう一度ログインしてから送ってください。', bad_words:'人を傷つける言葉が入っているため送れません。言い方を変えてください。',
+                too_many:'いま送られている数が多いため、少し時間をおいて送ってください。' };
+      say(M[data.error]||('送れませんでした：'+data.error));
+    } else {
+      say('送りました。ありがとうございます！',true);
+      document.getElementById('fbBody').value=''; fbKind=''; renderFbKinds();
+    }
+  }catch(e){ say('送れませんでした（通信エラー）。もう一度お試しください。'); }
+  btn.disabled=false;
 }
 
 // 起動（URLパラメータのキャスト名を使用）
