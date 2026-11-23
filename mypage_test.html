@@ -99,6 +99,9 @@
   .f-chips button.on{background:var(--lavender);}
   .f-prev{background:#F3FAFF;border-radius:8px;padding:6px 10px;font-size:13px;margin-bottom:4px;}
   .f-prev b{color:#2a7ab8;}
+  .f-sub{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 0 8px;align-items:center;font-weight:800;color:var(--text2);}
+  .f-sub button{border:1.5px solid #F0B0C8;background:#fff;border-radius:999px;padding:7px 14px;font-size:14px;font-weight:700;color:var(--text);}
+  .f-sub button.on{background:#FFD6E5;}
   .memo-help{background:#FFF8DD;border-radius:10px;padding:8px 12px;font-size:13.5px;margin-bottom:10px;line-height:1.6;}
   .memo-del{display:block;width:100%;margin-top:8px;border:0;background:none;color:#B24;font-size:14px;font-weight:700;padding:6px;}
   .tpl-btn{display:block;width:100%;margin-top:22px;border:2px dashed #9C6ADE;background:#F3ECFF;color:#5E35B1;border-radius:14px;padding:14px;font-size:16px;font-weight:800;}
@@ -173,6 +176,7 @@ async function loadMonth(){
     D.res = h.reservations || [];
     D.settles = {}; (h.settles || []).forEach(x => { D.settles[x.biz_date] = x; });
     D.memos = h.memos || {};
+    D.uns = (h.uns && h.uns.list) || [];
     D.weeks = (wk && wk.weeks) || {};
   }catch(e){ $("view").innerHTML = `<div class="err">読みこめませんでした：${esc(e.message || e)}<br>電波のよいところで、もう一度開いてください。</div>`; return; }
   render();
@@ -218,11 +222,11 @@ function payDetail(s){
   }
   const lines = (st.lines || []).map(l => { const big = /^本日のお給料|^投函額/.test(l); return l === "" ? `<div style="height:6px"></div>` : `<div class="line ${big ? "big" : ""}">${esc(l)}</div>`; }).join("");
   const at = new Date(new Date(st.shared_at).getTime() + 9 * 3600e3);
-  const SB = { settled: [`ok`, "✅ 精算済"], home: [`ok`, "🏠 直帰"], unsettled: [`off`, "⏳ 未精算"] }[st.state] || [`ok`, "確定"];
+  const SB = { settled: [`ok`, "✅ 精算済"], home: [`ok`, "🏠 直帰"], unsettled: [`off`, "⏳ 未精算"] }[st.live || st.state] || [`ok`, "確定"];
   if(st.img_path && !D.imgs[st.img_path]) loadImg(st.img_path);
   const im = st.img_path ? D.imgs[st.img_path] : null;
   return `<div class="card detail"><h3>💴 ${md(s)}の精算明細 <span class="badge ${SB[0]}">${SB[1]}</span></h3>
-    ${st.state === "unsettled" ? `<div class="muted" style="margin-bottom:6px">この日はまだ精算していません（未精算として残っています）</div>` : ""}
+    ${(st.live || st.state) === "unsettled" ? `<div class="muted" style="margin-bottom:6px">この日はまだ精算していません（未精算として残っています）</div>` : ""}
     ${im && im !== "err" ? `<img src="${im}" alt="精算明細" style="width:100%;border-radius:10px;border:1px solid var(--line)">` : st.img_path && im !== "err" ? `<div class="hint">画像を読みこみ中…</div>` : lines}
     <div class="muted" style="margin-top:6px">確定：${at.getUTCMonth() + 1}/${at.getUTCDate()} ${at.getUTCHours()}:${pad(at.getUTCMinutes())}</div></div>`;
 }
@@ -268,9 +272,30 @@ function resCard(r){
   </div>`;
 }
 // 書いたメモの見え方（LINE で送っていた形：「あだ名」・項目▶️中身）
+// 📒 未精算リスト（いちばん新しく届いた精算と一緒に、お店から送られたもの。内勤の画面と同じ）
+function unsHtml(){
+  const L = D.uns || [];
+  if(!L.length) return "";
+  const sum = L.reduce((a, x) => a + (Number(x.amount) || 0), 0);
+  return `<div class="card" style="border:2px solid #F0C850;background:#FFFCEB"><h3 style="font-size:15px;margin-bottom:6px">📒 未精算（${L.length}件）</h3>
+    ${L.map(x => `<div class="row"><span>${esc(md(x.date))}</span><b style="color:${Number(x.amount) >= 0 ? "#C62828" : "#1565C0"}">${esc(x.what)}</b></div>`).join("")}
+    <div class="row" style="font-weight:800"><span>合計</span><span>${sum >= 0 ? "未精算 " + yen(sum) : "お店から " + yen(-sum)}</span></div>
+    <div class="muted" style="margin-top:4px">次の精算のときに、いっしょに精算します</div></div>`;
+}
+// 項目の絵文字（自分で足した項目は 📌）
+const ICO = { "あだ名": "🏷️", "年齢": "🎂", "見た目": "👀", "性格": "💭", "在住": "🏠", "趣味": "🎮", "きっかけ": "✨", "したプレイ": "💕", "早漏・遅漏": "⏱️", "S・M": "⛓️", "女装": "👗", "話したこと": "💬", "そのほか": "📝" };
+const ico = l => ICO[l] || "📌";
+// 選ぶ形：1段目を選びなおすと2段目は消える。もう一度押すと外れる
+function pickChoice(i, c, step){
+  const f = D.tpl[i], [a, b] = String(MD.vals[f.label] || "").split("・");
+  let v;
+  if(step === 1) v = a === c ? "" : c;
+  else v = b === c ? a : a + "・" + c;
+  MD.vals[f.label] = v; keepDraft(); paintMemo();
+}
 function memoView(m){
   const f = (m.fields || []).filter(x => String(x.value || "").trim());
-  return `<div style="font-size:13px;white-space:pre-wrap;margin:4px 0">${m.nick ? `<b>「${esc(m.nick)}」</b>\n` : ""}${f.map(x => `${esc(x.label)}▶️${esc(x.value)}`).join("\n")}${m.body ? (f.length ? "\n" : "") + esc(m.body) : ""}</div>
+  return `<div style="font-size:13px;white-space:pre-wrap;margin:4px 0;line-height:1.8">${m.nick ? `<b>🏷️「${esc(m.nick)}」</b>\n` : ""}${f.map(x => `${ico(x.label)} <b>${esc(x.label)}</b>　${esc(x.value)}`).join("\n")}${m.body ? (f.length ? "\n" : "") + "📝 " + esc(m.body) : ""}</div>
     ${(m.tags || []).length ? `<div class="shopnote">⚠ ${m.tags.map(esc).join("・")}${m.shop_note ? "：" + esc(m.shop_note) : ""}</div>` : ""}`;
 }
 function histHtml(H){
@@ -324,18 +349,25 @@ function paintMemo(){
     <div class="sh-body">
       <div class="memo-help">✍️ <b>書けるところだけでOK</b>です。全部書かなくて大丈夫。<br>空いている項目は、お店にも出ません。</div>
       ${canPrev ? `<button class="btn sky full" style="margin-bottom:10px" onclick="fillPrev()">📋 前回のメモ（${esc(md(p.biz_date))}）から、年齢・見た目などを入れる</button>` : ""}
-      <label class="f-l">あだ名（自分用の呼び名）</label>
+      <label class="f-l">${ico("あだ名")} あだ名（自分用の呼び名）</label>
       <div style="display:flex;align-items:center;gap:4px"><span style="font-size:18px">「</span><input class="f-in" id="mf-nick" value="${esc(MD.nick)}" maxlength="40" oninput="MD.nick=this.value;keepDraft()"><span style="font-size:18px">」</span></div>
       ${T.map((f, i) => {
         const v = MD.vals[f.label] || "", pv = f.keep ? prevVal(f.label) : "";
-        return `<label class="f-l">${esc(f.label)}</label>
+        // 選ぶ形（女装など）：1段目を選ぶ → subFor の答えのときだけ2段目（2026/11/23 店長）
+        if((f.choice || []).length){
+          const [a, b2] = String(v).split("・"), needSub = (f.subFor || []).includes(a) && (f.sub || []).length;
+          return `<label class="f-l">${ico(f.label)} ${esc(f.label)}</label>
+            <div class="f-chips">${f.choice.map(c => `<button class="${a === c ? "on" : ""}" onclick="pickChoice(${i}, ${esc(JSON.stringify(c))}, 1)">${esc(c)}</button>`).join("")}</div>
+            ${needSub ? `<div class="f-sub">↳ ${f.sub.map(c => `<button class="${b2 === c ? "on" : ""}" onclick="pickChoice(${i}, ${esc(JSON.stringify(c))}, 2)">${esc(c)}</button>`).join("")}</div>` : ""}`;
+        }
+        return `<label class="f-l">${ico(f.label)} ${esc(f.label)}</label>
           ${pv && !v.trim() ? `<div class="f-prev" onclick="setVal(${i}, ${esc(JSON.stringify(pv))})">前回：${esc(pv)} <b>＋入れる</b></div>` : ""}
           <textarea class="f-in" id="mf-${i}" rows="1" oninput="MD.vals[D.tpl[${i}].label]=this.value;grow(this);keepDraft()">${esc(v)}</textarea>
           ${(f.chips || []).length ? `<div class="f-chips">${f.chips.map(c => `<button onclick="addChip(${i}, ${esc(JSON.stringify(c))})">${esc(c)}</button>`).join("")}</div>` : ""}`;
       }).join("")}
-      <label class="f-l">そのほか（自由に）</label>
+      <label class="f-l">${ico("そのほか")} そのほか（自由に）</label>
       <textarea class="f-in" id="mf-body" rows="2" oninput="MD.body=this.value;grow(this);keepDraft()">${esc(MD.body)}</textarea>
-      <label class="f-l">お店に伝えたいこと（NG・要注意のときだけ押す）</label>
+      <label class="f-l">📣 お店に伝えたいこと（NG・要注意のときだけ押す）</label>
       <div class="f-chips">${TAGS.map(t => `<button class="${MD.tags.includes(t) ? "on" : ""}" onclick="tagMemo(${esc(JSON.stringify(t))})">${esc(t)}</button>`).join("")}</div>
       ${MD.tags.length ? `<label class="f-l" style="color:#C62828">⚠ どんなことがあったか（必ず書いてください）</label>
         <textarea class="f-in" id="mf-shop" rows="2" style="border-color:#E57373" oninput="MD.shop=this.value;grow(this);keepDraft()" placeholder="お店に伝えたいことを書いてください">${esc(MD.shop)}</textarea>` : ""}
@@ -390,7 +422,7 @@ function paintTpl(){
     <div class="sh-body">${TP.map((f, i) => `<div class="tp-row">
         <div style="display:flex;gap:6px;align-items:center"><input class="f-in" value="${esc(f.label)}" maxlength="20" oninput="TP[${i}].label=this.value" placeholder="項目の名前">
           <button class="tp-b" onclick="tpMove(${i},-1)">↑</button><button class="tp-b" onclick="tpMove(${i},1)">↓</button><button class="tp-b" onclick="TP.splice(${i},1);paintTpl()">🗑</button></div>
-        <input class="f-in" style="margin-top:6px" value="${esc((f.chips || []).join("、"))}" oninput="TP[${i}].chips=this.value.split(/[、,，]/).map(s=>s.trim()).filter(Boolean)" placeholder="押すと入る言葉（「、」で区切る）例：早漏、遅漏">
+        ${(f.choice || []).length ? `<div class="muted" style="margin-top:6px">選ぶ形の項目：${esc(f.choice.join("／"))}${(f.sub || []).length ? `（${esc((f.subFor || []).join("・"))} のとき → ${esc(f.sub.join("／"))}）` : ""}</div>` : `<input class="f-in" style="margin-top:6px" value="${esc((f.chips || []).join("、"))}" oninput="TP[${i}].chips=this.value.split(/[、,，]/).map(s=>s.trim()).filter(Boolean)" placeholder="押すと入る言葉（「、」で区切る）例：早漏、遅漏">`}
         <label style="font-size:13px;display:flex;align-items:center;gap:6px;margin-top:6px"><input type="checkbox" ${f.keep ? "checked" : ""} onchange="TP[${i}].keep=this.checked"> 前回のメモから引きつぐ（年齢・見た目など、変わらないもの）</label></div>`).join("")}
       <button class="btn soft full" onclick="TP.push({label:'',chips:[],keep:false});paintTpl()">＋ 項目を足す</button>
       <button class="btn soft full" style="margin-top:8px" onclick="tpReset()">↩ はじめの形にもどす</button></div>
@@ -459,7 +491,7 @@ function render(){
   const wait = [...new Set(D.res.filter(r => !OFF[r.status] && !D.settles[r.biz_date] && r.biz_date >= APP_START).map(r => r.biz_date))].length;
   const cnt = D.res.filter(r => !OFF[r.status]).length;
   const sum = seg === "shift" ? `<div class="sum-bar"><div>${M}月の出勤<b>${days}日</b></div></div>`
-            : seg === "pay" ? `<div class="sum-bar"><div>${M}月のお給料（確定分）<b>${yen(paid)}</b></div><div>まだの日<b>${wait}日</b></div></div>`
+            : seg === "pay" ? `<div class="sum-bar"><div>${M}月のお給料（確定分）<b>${yen(paid)}</b></div><div>まだの日<b>${wait}日</b></div></div>` + unsHtml()
             : `<div class="sum-bar"><div>${M}月の予約<b>${cnt}件</b></div><div>メモを書いた<b>${Object.keys(D.memos).length}件</b></div></div>`;
   const detail = seg === "shift" ? shiftDetail(sel) : seg === "pay" ? payDetail(sel) : resDetail(sel);
   const extra = seg === "pay" ? `<button class="btn soft full" style="margin-bottom:12px" onclick="openBack()">💗 わたしのバック表・条件を見る</button>` : "";
