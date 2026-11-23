@@ -4531,6 +4531,18 @@ const _nameEl2 = document.getElementById('helloUserName');
 if(_nameEl1) _nameEl1.textContent = _castNameFromUrl;
 if(_nameEl2) _nameEl2.textContent = _castNameFromUrl;
 
+// 🧪 新しい画面のテスト（2026/11/23）：ムムだけに入口を出す。中身は見本のデータだけ（本物の予約・精算は読まない）
+if(String(_castNameFromUrl || '').indexOf('ムム') >= 0){
+  const _tabs = document.querySelector('.tabs');
+  if(_tabs){
+    const a = document.createElement('a');
+    a.className = 'tab'; a.style.textDecoration = 'none';
+    a.href = 'mypage_test.html';
+    a.textContent = '🧪 新しい画面';
+    _tabs.appendChild(a);
+  }
+}
+
 // 保存済みメールアドレスを入力欄に反映（専用アクションで自分の分のみ取得）
 (async()=>{
   try{
