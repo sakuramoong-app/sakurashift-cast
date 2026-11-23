@@ -3,11 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>サクラシフト（テスト）</title>
+<title>サクラシフト（新しい画面）</title>
 <link rel="icon" href="favicon.png">
 <meta name="theme-color" content="#FF9EC0">
-<!-- 🧪 キャスト用の新しい画面のテスト（2026/11/23）。いまは「見本のデータ」だけ。本物の予約・精算・お客さんは読まない・書かない。
-     A＝上の切りかえ＋カレンダー ／ B＝メニューから入る。どちらがいいか店長が決めるための画面 -->
+<!-- 📱 キャストの新しい画面（2026/11/23・はじめはテストのキャスト〈ムム〉だけ）
+     上の「シフト・報酬・予約」を切りかえて、カレンダーの日付をタップ（店長が A の形に決めた）
+     本物のデータは Supabase の窓口（SQL 955）から。窓口は「ログインしているキャスト本人」の分だけ返す。
+     お客さんの電話番号・内勤の顧客台帳・ほかのキャストの情報は、窓口が返さないので、この画面にも来ない -->
 <style>
   :root{
     --base:#F0FBF4;--card:#FFFFFF;--mint:#A7E8C8;--mint-deep:#5FD0A0;--pink:#FFC9DD;--pink-deep:#FF9EC0;
@@ -24,9 +26,6 @@
   .top-user{font-size:12px;color:var(--text2);}
   .back-app{font-size:12px;border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;text-decoration:none;color:var(--text);}
   .test-note{background:#FFF8DD;border:1px dashed #F0C850;border-radius:12px;padding:8px 12px;font-size:12px;margin:4px 0 10px;}
-  .ab{display:flex;gap:6px;margin-bottom:12px;}
-  .ab button{flex:1;border:2px solid var(--lavender);background:#fff;border-radius:12px;padding:8px 4px;font-size:13px;font-weight:700;}
-  .ab button.on{background:var(--lavender);}
   .seg{display:flex;background:#fff;border-radius:14px;padding:4px;box-shadow:0 2px 10px rgba(95,208,160,.14);margin-bottom:10px;}
   .seg button{flex:1;border:0;background:transparent;border-radius:10px;padding:9px 2px;font-size:14px;font-weight:700;color:var(--text2);}
   .seg button.on{background:var(--pink);color:var(--text);}
@@ -39,258 +38,289 @@
   .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
   .cal .dow{text-align:center;font-size:11px;color:var(--text2);padding:2px 0;}
   .cal .dow.sun{color:#E58;} .cal .dow.sat{color:#58C;}
-  .day{background:#fff;border-radius:10px;min-height:62px;padding:3px 3px 4px;border:2px solid transparent;display:flex;flex-direction:column;align-items:center;gap:2px;}
+  .day{background:#fff;border-radius:10px;min-height:58px;padding:3px 2px 4px;border:2px solid transparent;display:flex;flex-direction:column;align-items:center;gap:2px;}
   .day.blank{background:transparent;}
   .day.today{border-color:var(--mint-deep);}
   .day.sel{border-color:var(--pink-deep);background:#FFF4F8;}
   .day .n{font-size:12px;font-weight:700;}
-  .day .chip{font-size:10px;border-radius:6px;padding:0 4px;white-space:nowrap;max-width:100%;overflow:hidden;}
+  .day .chip{font-size:10px;border-radius:6px;padding:0 3px;white-space:nowrap;max-width:100%;overflow:hidden;}
   .chip.shift{background:var(--mint);} .chip.shift.tent{background:var(--lemon);}
   .chip.pay{background:var(--pink);} .chip.pay.wait{background:var(--rest);color:var(--text2);}
   .chip.res{background:var(--sky);} .chip.memo{background:var(--lavender);}
   .hint{font-size:12px;color:var(--text2);text-align:center;margin:8px 0;}
-  .detail h3{font-size:15px;margin-bottom:8px;display:flex;align-items:center;gap:6px;}
-  .row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed var(--line);font-size:14px;}
+  .detail h3{font-size:15px;margin-bottom:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+  .row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed var(--line);font-size:14px;gap:8px;}
   .row:last-child{border-bottom:0;}
-  .row.total{font-weight:800;font-size:16px;border-top:2px solid var(--pink);border-bottom:0;margin-top:4px;padding-top:8px;}
+  .line{font-size:14px;padding:2px 0;white-space:pre-wrap;}
+  .line.big{font-weight:800;font-size:16px;}
   .muted{color:var(--text2);font-size:12px;}
   .badge{display:inline-block;font-size:11px;border-radius:999px;padding:1px 8px;font-weight:700;}
-  .badge.ok{background:var(--mint);} .badge.wait{background:var(--rest);color:var(--text2);}
+  .badge.ok{background:var(--mint);} .badge.wait{background:var(--rest);color:var(--text2);} .badge.off{background:#FFE0E0;color:#B24;}
   .res{border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:10px;}
+  .res.off{opacity:.55;}
   .res .t{font-weight:800;font-size:15px;}
-  .res .kv{font-size:13px;margin-top:4px;}
-  .res .kv span{color:var(--text2);display:inline-block;min-width:64px;}
+  .res .kv{font-size:13px;margin-top:4px;display:flex;gap:6px;}
+  .res .kv span:first-child{color:var(--text2);flex:0 0 72px;}
+  .wish{display:inline-block;font-weight:800;font-size:13px;border-radius:8px;padding:1px 8px;margin-right:4px;}
+  .wish.yes{background:#FFE0EC;color:#C2185B;} .wish.no{background:var(--rest);color:var(--text2);}
   .memo-box{margin-top:8px;background:#FAF7FF;border-radius:10px;padding:8px;}
   .memo-box textarea{width:100%;min-height:64px;border:1px solid var(--lavender);border-radius:8px;padding:6px;font-family:inherit;font-size:14px;}
   .memo-box .tags{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0;}
   .memo-box .tags button{border:1px solid var(--lavender);background:#fff;border-radius:999px;padding:2px 10px;font-size:12px;}
   .memo-box .tags button.on{background:var(--lavender);}
+  .hist{margin-top:8px;background:#F3FAFF;border-radius:10px;padding:8px;font-size:13px;}
+  .hist .h{padding:3px 0;border-bottom:1px dashed #D6EAF8;}
+  .hist .h:last-child{border-bottom:0;}
   .btn{border:0;border-radius:12px;padding:10px 14px;font-weight:800;font-size:14px;}
-  .btn.pink{background:var(--pink-deep);color:#fff;} .btn.soft{background:#fff;border:1px solid var(--line);}
+  .btn.pink{background:var(--pink-deep);color:#fff;} .btn.soft{background:#fff;border:1px solid var(--line);} .btn.sky{background:var(--sky);}
   .btn.full{width:100%;}
-  .menu{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
-  .menu button{background:#fff;border:0;border-radius:18px;padding:18px 8px;box-shadow:0 2px 12px rgba(95,208,160,.14);text-align:center;}
-  .menu .ic{font-size:30px;display:block;}
-  .menu .lb{font-weight:800;font-size:15px;display:block;margin-top:4px;}
-  .menu .sb{font-size:11px;color:var(--text2);display:block;margin-top:2px;}
+  .btn:disabled{opacity:.5;}
   .back{border:0;background:none;font-size:14px;font-weight:700;color:var(--pink-deep);margin:2px 0 8px;}
-  .list-item{display:flex;justify-content:space-between;align-items:center;background:#fff;border-radius:12px;padding:10px 12px;margin-bottom:8px;box-shadow:0 1px 6px rgba(0,0,0,.05);border:0;width:100%;text-align:left;}
   .bt-pick{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}
   .bt-pick button{border:2px solid var(--line);background:#fff;border-radius:999px;padding:5px 12px;font-size:13px;font-weight:700;}
   .bt-pick button.on{border-color:var(--pink-deep);background:#FFF0F6;}
-  .bt-table{width:100%;border-collapse:collapse;font-size:14px;}
-  .bt-table th,.bt-table td{padding:7px 4px;border-bottom:1px dashed var(--line);text-align:right;}
-  .bt-table th:first-child,.bt-table td:first-child{text-align:left;}
-  .bt-table td.hl{background:#FFF0F6;font-weight:800;}
-  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#4A5560;color:#fff;border-radius:999px;padding:8px 16px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;}
+  .bt-row{display:flex;justify-content:space-between;padding:6px 2px;border-bottom:1px dashed var(--line);font-size:14px;}
+  .bt-note{padding:6px 2px;font-size:13px;color:#8A5A00;background:#FFF9E8;border-radius:8px;margin:4px 0;}
+  .rule{background:#FFF8DD;border-radius:10px;padding:6px 10px;margin-bottom:6px;font-size:13px;}
+  .err{background:#FFE9E9;border-radius:12px;padding:10px 12px;font-size:13px;color:#A33;margin-bottom:10px;}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#4A5560;color:#fff;border-radius:999px;padding:8px 16px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9;}
   .toast.show{opacity:.92;}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>window.SHIFT_DB_ROLE='cast';</script>
+<script src="shift_db.js"></script>
 </head>
 <body>
 <div class="top">
-  <div><div class="top-name">🌸 サクラシフト <span style="font-size:12px">🧪テスト</span></div><div class="top-user">🍀 <span id="who"></span> さん</div></div>
-  <a class="back-app" id="backApp" href="#">‹ いつもの画面</a>
+  <div><div class="top-name">🌸 サクラシフト <span style="font-size:12px">🧪テスト中</span></div><div class="top-user">🍀 <span id="who"></span> さん</div></div>
+  <a class="back-app" id="backApp" href="cast_live.html">‹ いつもの画面</a>
 </div>
 <div class="wrap">
-  <div class="test-note">🧪 <b>テスト画面です（見本のデータ）。</b>本物の予約・精算・お客さんの情報ではありません。メモを書いても、お店には届きません。</div>
-  <div class="ab">
-    <button id="abA" onclick="setMode('A')">A：切りかえ＋カレンダー</button>
-    <button id="abB" onclick="setMode('B')">B：メニューから入る</button>
-  </div>
-  <div id="view"></div>
+  <div class="test-note">🧪 <b>テスト中の新しい画面です。</b>見えるのは、あなたの予約・精算・メモだけです（ほかの人には見えません）。メモはお店にも届きます。</div>
+  <div id="view"><div class="hint">読みこみ中…</div></div>
 </div>
 <div class="toast" id="toast"></div>
 
 <script>
-/* ============ 見本のデータ（本物ではない）============ */
-const Y = 2026, M = 11;   // 2026年11月
-const SHIFT = { 2:"18-24", 3:"18-24", 5:"15-23", 7:"18-25", 9:"18-24", 10:"18-24", 12:"15-23", 14:"18-25", 16:"18-24", 17:"18-24", 19:"15-23", 21:"18-25", 23:"18-24", 24:"18-24", 26:"15-23", 28:"18-25", 30:"18-24" };
-const TENT = new Set([24, 26, 28, 30]);   // まだ確定していないシフト
-const RES = {
-  2:[{ t:"19:00-20:30", store:"サクラ池袋", course:"90分", hon:true, name:"たなか", place:"池袋 ホテルA 302", op:"コスプレ", kind:"本指" },
-     { t:"21:30-23:30", store:"サクラ池袋", course:"120分", hon:false, name:"すずき", place:"池袋 自宅", op:"", kind:"新" }],
-  3:[{ t:"20:00-21:00", store:"Lana(鶯谷)", course:"60分", hon:false, name:"さとう", place:"鶯谷 ホテルB", op:"", kind:"新" }],
-  5:[{ t:"16:00-18:00", store:"Lana(鶯谷)", course:"120分", hon:true, name:"たなか", place:"鶯谷 ホテルC", op:"オイル", kind:"本指" },
-     { t:"19:00-20:30", store:"極門", course:"90分", hon:false, name:"やまだ", place:"五反田 ホテルD", op:"", kind:"店リ" },
-     { t:"21:00-22:00", store:"サクラ池袋", course:"60分", hon:false, name:"いとう", place:"池袋 ホテルA", op:"", kind:"新" }],
-  7:[{ t:"22:00-24:30", store:"サクラ池袋", course:"150分", hon:true, name:"わたなべ", place:"池袋 ホテルE", op:"", kind:"本指" }],
-  9:[{ t:"19:30-21:00", store:"Lana(鶯谷)", course:"90分", hon:false, name:"なかむら", place:"鶯谷 ホテルB", op:"", kind:"新" }],
-  12:[{ t:"16:00-17:30", store:"サクラ池袋", course:"90分", hon:true, name:"たなか", place:"池袋 ホテルA", op:"", kind:"本指" },
-      { t:"20:00-22:00", store:"極門", course:"120分", hon:false, name:"こばやし", place:"五反田 ホテルD", op:"", kind:"新" }],
-  14:[{ t:"21:00-22:30", store:"サクラ池袋", course:"90分", hon:false, name:"かとう", place:"池袋 自宅", op:"", kind:"店リ" }],
-  16:[{ t:"19:00-21:00", store:"Lana(鶯谷)", course:"120分", hon:true, name:"すずき", place:"鶯谷 ホテルC", op:"", kind:"本指" }],
-  17:[{ t:"20:00-21:30", store:"サクラ池袋", course:"90分", hon:false, name:"よしだ", place:"池袋 ホテルA", op:"", kind:"新" }],
-  19:[{ t:"17:00-18:00", store:"サクラ池袋", course:"60分", hon:false, name:"やまもと", place:"池袋 ホテルE", op:"", kind:"新" },
-      { t:"19:30-21:30", store:"Lana(鶯谷)", course:"120分", hon:true, name:"たなか", place:"鶯谷 ホテルB", op:"コスプレ", kind:"本指" }],
-  21:[{ t:"22:00-23:30", store:"サクラ池袋", course:"90分", hon:false, name:"まつもと", place:"池袋 ホテルA", op:"", kind:"店リ" }],
-  23:[{ t:"19:00-20:30", store:"サクラ池袋", course:"90分", hon:true, name:"わたなべ", place:"池袋 ホテルE", op:"", kind:"本指" }],
-  24:[{ t:"20:00-22:00", store:"Lana(鶯谷)", course:"120分", hon:false, name:"いのうえ", place:"鶯谷 ホテルC", op:"", kind:"新" }],
-};
-// バック表（見本）：店 → コース → [ふつう, 本指名]
-const BACK = {
-  "サクラ池袋": { "60分":[11000,12000], "90分":[13500,15000], "120分":[18000,20000], "150分":[22500,25000] },
-  "Lana(鶯谷)": { "60分":[10500,11500], "90分":[13000,14500], "120分":[17500,19500], "150分":[22000,24500] },
-  "極門":       { "60分":[12000,13000], "90分":[15000,16500], "120分":[20000,22000] },
-};
-const OP_BACK = { "コスプレ":1000, "オイル":1000 };
-const TRANSPORT = 1000, ZAPPI = 1000;
-const today = 23;
-// 精算：その日の予約のバックから作る（見本）。今日より前は「確定ずみ」、今日から先は「まだ」
-function settleOf(d){
-  const rs = RES[d]; if(!rs) return null;
-  const lines = rs.map(r => { const b = BACK[r.store][r.course][r.hon ? 1 : 0]; return { label:`${r.t.split("-")[0]} ${r.store} ${r.course}${r.hon ? "（本指名）" : ""}`, back:b, op: r.op ? (OP_BACK[r.op] || 0) : 0, opName:r.op }; });
-  const back = lines.reduce((s, x) => s + x.back + x.op, 0);
-  const total = back + TRANSPORT - ZAPPI;
-  return { lines, back, total, done: d < today };
-}
-const memos = {};   // テストなので画面の中だけ（お店には届かない）
-try{ Object.assign(memos, JSON.parse(localStorage.getItem("kbCastTestMemo") || "{}")); }catch(e){}
-
-/* ============ 共通 ============ */
 const $ = id => document.getElementById(id);
-const yen = n => "¥" + Number(n).toLocaleString("ja-JP");
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
-const dowOf = d => new Date(Y, M - 1, d).getDay();
+const yen = n => "¥" + Math.round(Number(n) || 0).toLocaleString("ja-JP");
 const DOW = ["日","月","火","水","木","金","土"];
-const daysIn = new Date(Y, M, 0).getDate();
-function toast(m){ const t = $("toast"); t.textContent = m; t.classList.add("show"); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 1800); }
-// ログインしていないとき（キャストの名前がこのタブにない）は、ログイン画面へ
-const NAME = sessionStorage.getItem("castName") || "";
-if(!NAME) location.replace("index.html");
-$("who").textContent = NAME;
-$("backApp").href = "cast_live.html?name=" + encodeURIComponent(NAME);
+const pad = n => String(n).padStart(2, "0");
+const ymd = (y, m, d) => `${y}-${pad(m)}-${pad(d)}`;
+function toast(m){ const t = $("toast"); t.textContent = m; t.classList.add("show"); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 2200); }
+const sb = ShiftDB.client;
 
-let mode = "A", seg = "shift", sel = today, page = "home", btStore = "サクラ池袋", btHon = false;
-try{ mode = localStorage.getItem("kbCastTestMode") || "A"; }catch(e){}
-function setMode(m){ mode = m; page = "home"; try{ localStorage.setItem("kbCastTestMode", m); }catch(e){} render(); }
+// 今日の営業日（朝6時で切りかえ・日本時間）
+const nowJ = new Date(Date.now() + 9 * 3600e3 - 6 * 3600e3);
+const TODAY = ymd(nowJ.getUTCFullYear(), nowJ.getUTCMonth() + 1, nowJ.getUTCDate());
+let Y = nowJ.getUTCFullYear(), M = nowJ.getUTCMonth() + 1;
+let seg = "res", sel = TODAY, NAME = "";
+const D = { res: [], settles: {}, memos: {}, weeks: {}, back: null, hist: {}, histOpen: {} };
+try{ seg = localStorage.getItem("kbCastSeg") || "res"; }catch(e){}
 
-// カレンダー（kind：shift / pay / res）
-function calHtml(kind, onTap){
+const daysIn = (y, m) => new Date(y, m, 0).getDate();
+const dowOf = s => new Date(s + "T12:00:00Z").getUTCDay();
+const md = s => { const [, m, d] = s.split("-").map(Number); return `${m}/${d}（${DOW[dowOf(s)]}）`; };
+function hmJ(iso){ if(!iso) return "--:--"; const d = new Date(new Date(iso).getTime() + 9 * 3600e3); let h = d.getUTCHours(); if(h < 6) h += 24; return h + ":" + pad(d.getUTCMinutes()); }   // 深夜は 26:00 のように
+const hrs = v => { const n = Number(v); if(!isFinite(n)) return String(v || ""); const h = Math.floor(n), mm = Math.round((n - h) * 60); return h + (mm ? ":" + pad(mm) : ""); };
+function weekKey(s){ const d = new Date(s + "T12:00:00Z"), w = d.getUTCDay(); d.setUTCDate(d.getUTCDate() + (w === 0 ? -6 : 1 - w)); return d.toISOString().slice(0, 10); }
+function weeksOfMonth(y, m){ const s = new Set(); for(let d = 1; d <= daysIn(y, m); d++) s.add(weekKey(ymd(y, m, d))); return [...s]; }
+
+/* ---------- 読みこみ ---------- */
+async function boot(){
+  const s = await ShiftDB.getSession();
+  if(!s){ location.replace("index.html"); return; }
+  NAME = ShiftDB.sessionCast(s);
+  $("who").textContent = NAME;
+  $("backApp").href = "cast_live.html?name=" + encodeURIComponent(NAME);
+  await loadMonth();
+}
+async function loadMonth(){
+  $("view").innerHTML = `<div class="hint">読みこみ中…</div>`;
+  const from = ymd(Y, M, 1), to = ymd(Y, M, daysIn(Y, M));
+  try{
+    const [home, wk] = await Promise.all([
+      sb.rpc("cast_app_home", { p_from: from, p_to: to }),
+      ShiftDB.call({ action: "loadMonth", cast: NAME, weeks: weeksOfMonth(Y, M) }),
+    ]);
+    if(home.error) throw home.error;
+    const h = home.data || {};
+    if(h.error === "not_allowed"){ $("view").innerHTML = `<div class="err">この画面は、まだ使えません（テスト中のキャストだけ）。「いつもの画面」にもどってください。</div>`; return; }
+    if(h.error) throw new Error(h.error);
+    D.res = h.reservations || [];
+    D.settles = {}; (h.settles || []).forEach(x => { D.settles[x.biz_date] = x; });
+    D.memos = h.memos || {};
+    D.weeks = (wk && wk.weeks) || {};
+  }catch(e){ $("view").innerHTML = `<div class="err">読みこめませんでした：${esc(e.message || e)}<br>電波のよいところで、もう一度開いてください。</div>`; return; }
+  render();
+}
+function shiftOf(s){
+  const w = D.weeks[weekKey(s)]; if(!w || !w.shifts || !w.shifts[s]) return null;
+  const x = w.shifts[s], st = w.status || "unsubmitted";
+  return { start: x.start, end: x.end, status: st, ok: st === "confirmed" || st === "change_confirmed" };
+}
+const resOf = s => D.res.filter(r => r.biz_date === s);
+const OFF = { cancel: "キャンセル", tobi: "トビ", flowed: "流れた" };
+
+/* ---------- カレンダー ---------- */
+function calHtml(){
   let h = DOW.map((w, i) => `<div class="dow ${i === 0 ? "sun" : i === 6 ? "sat" : ""}">${w}</div>`).join("");
-  for(let i = 0; i < dowOf(1); i++) h += `<div class="day blank"></div>`;
-  for(let d = 1; d <= daysIn; d++){
-    let chips = "";
-    if(kind === "shift" && SHIFT[d]) chips = `<span class="chip shift ${TENT.has(d) ? "tent" : ""}">${SHIFT[d]}</span>`;
-    if(kind === "pay"){ const s = settleOf(d); if(s) chips = s.done ? `<span class="chip pay">${(s.total / 1000).toFixed(1)}千</span>` : `<span class="chip pay wait">まだ</span>`; }
-    if(kind === "res" && RES[d]){ chips = `<span class="chip res">${RES[d].length}件</span>`; if(RES[d].some((r, i) => memos[d + "-" + i])) chips += `<span class="chip memo">📝</span>`; }
-    if(kind === "all"){
-      if(SHIFT[d]) chips += `<span class="chip shift ${TENT.has(d) ? "tent" : ""}">${SHIFT[d]}</span>`;
-      if(RES[d]) chips += `<span class="chip res">${RES[d].length}件</span>`;
-    }
-    h += `<button class="day ${d === today ? "today" : ""} ${d === sel ? "sel" : ""}" onclick="${onTap}(${d})"><span class="n">${d}</span>${chips}</button>`;
+  for(let i = 0; i < dowOf(ymd(Y, M, 1)); i++) h += `<div class="day blank"></div>`;
+  for(let d = 1; d <= daysIn(Y, M); d++){
+    const s = ymd(Y, M, d); let chips = "";
+    if(seg === "shift"){ const x = shiftOf(s); if(x) chips = `<span class="chip shift ${x.ok ? "" : "tent"}">${hrs(x.start)}-${hrs(x.end)}</span>`; }
+    if(seg === "pay"){ const st = D.settles[s]; if(st) chips = `<span class="chip pay">${(st.take_home / 1000).toFixed(1)}千</span>`; else if(resOf(s).some(r => !OFF[r.status])) chips = `<span class="chip pay wait">まだ</span>`; }
+    if(seg === "res"){ const rs = resOf(s).filter(r => !OFF[r.status]); if(rs.length) chips = `<span class="chip res">${rs.length}件</span>`; if(resOf(s).some(r => D.memos[r.id])) chips += `<span class="chip memo">📝</span>`; }
+    h += `<button class="day ${s === TODAY ? "today" : ""} ${s === sel ? "sel" : ""}" onclick="tap('${s}')"><span class="n">${d}</span>${chips}</button>`;
   }
-  return `<div class="month-nav"><button onclick="toast('テストなので11月だけです')">‹</button>${Y}年 ${M}月<button onclick="toast('テストなので11月だけです')">›</button></div><div class="card" style="padding:8px"><div class="cal">${h}</div></div>`;
+  return `<div class="month-nav"><button onclick="mv(-1)">‹</button>${Y}年 ${M}月<button onclick="mv(1)">›</button></div><div class="card" style="padding:8px"><div class="cal">${h}</div></div>`;
 }
-function monthSum(){
-  let done = 0, wait = 0, cnt = 0, days = 0;
-  for(let d = 1; d <= daysIn; d++){ const s = settleOf(d); if(s){ if(s.done) done += s.total; else wait++; } if(RES[d]) cnt += RES[d].length; if(SHIFT[d]) days++; }
-  return { done, wait, cnt, days };
-}
-// その日の中身
-function shiftDetail(d){
-  const s = SHIFT[d];
-  return `<div class="card detail"><h3>📅 ${M}/${d}（${DOW[dowOf(d)]}）のシフト</h3>${s ? `<div class="row"><span>時間</span><b>${s}</b></div><div class="row"><span>状態</span>${TENT.has(d) ? `<span class="badge wait">提出済み（未確定）</span>` : `<span class="badge ok">確定</span>`}</div>` : `<div class="muted">この日はシフトがありません</div>`}
+function mv(k){ M += k; if(M < 1){ M = 12; Y--; } if(M > 12){ M = 1; Y++; } sel = ymd(Y, M, 1); if(sel.slice(0, 7) === TODAY.slice(0, 7)) sel = TODAY; loadMonth(); }
+function tap(s){ sel = s; render(); setTimeout(() => { const el = $("detail"); if(el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 30); }
+function setSeg(k){ seg = k; try{ localStorage.setItem("kbCastSeg", k); }catch(e){} render(); }
+
+/* ---------- その日の中身 ---------- */
+function shiftDetail(s){
+  const x = shiftOf(s);
+  return `<div class="card detail"><h3>📅 ${md(s)}のシフト</h3>${x ? `<div class="row"><span>時間</span><b>${hrs(x.start)}〜${hrs(x.end)}</b></div><div class="row"><span>状態</span>${x.ok ? `<span class="badge ok">確定</span>` : `<span class="badge wait">まだ確定していません</span>`}</div>` : `<div class="muted">この日はシフトがありません</div>`}
     <div class="muted" style="margin-top:8px">※ シフトの入力・変更は「いつもの画面」でします</div></div>`;
 }
-function payDetail(d){
-  const s = settleOf(d);
-  if(!s) return `<div class="card detail"><h3>💴 ${M}/${d}（${DOW[dowOf(d)]}）の精算</h3><div class="muted">この日の精算はありません</div></div>`;
-  if(!s.done) return `<div class="card detail"><h3>💴 ${M}/${d}（${DOW[dowOf(d)]}）の精算 <span class="badge wait">まだ</span></h3><div class="muted">お店が精算を確定すると、ここに明細が出ます</div></div>`;
-  return `<div class="card detail"><h3>💴 ${M}/${d}（${DOW[dowOf(d)]}）の精算明細 <span class="badge ok">確定</span></h3>
-    ${s.lines.map(x => `<div class="row"><span>${esc(x.label)}</span><span>${yen(x.back)}</span></div>${x.op ? `<div class="row"><span>　オプション（${esc(x.opName)}）</span><span>${yen(x.op)}</span></div>` : ""}`).join("")}
-    <div class="row"><span>交通費</span><span>${yen(TRANSPORT)}</span></div>
-    <div class="row"><span>雑費</span><span>−${yen(ZAPPI)}</span></div>
-    <div class="row total"><span>受け取り</span><span>${yen(s.total)}</span></div>
-    <div class="muted" style="margin-top:6px">確定：${M}/${d + 1} 6:10（内勤）</div></div>`;
+function payDetail(s){
+  const st = D.settles[s];
+  if(!st){
+    const has = resOf(s).some(r => !OFF[r.status]);
+    return `<div class="card detail"><h3>💴 ${md(s)}の精算 ${has ? `<span class="badge wait">まだ</span>` : ""}</h3><div class="muted">${has ? "お店が精算を確定すると、ここに明細が出ます" : "この日の精算はありません"}</div></div>`;
+  }
+  const lines = (st.lines || []).map(l => { const big = /^本日のお給料|^投函額/.test(l); return l === "" ? `<div style="height:6px"></div>` : `<div class="line ${big ? "big" : ""}">${esc(l)}</div>`; }).join("");
+  const at = new Date(new Date(st.shared_at).getTime() + 9 * 3600e3);
+  return `<div class="card detail"><h3>💴 ${md(s)}の精算明細 <span class="badge ok">確定</span></h3>${lines}
+    <div class="muted" style="margin-top:6px">確定：${at.getUTCMonth() + 1}/${at.getUTCDate()} ${at.getUTCHours()}:${pad(at.getUTCMinutes())}</div></div>`;
 }
-function resDetail(d){
-  const rs = RES[d];
-  if(!rs) return `<div class="card detail"><h3>📖 ${M}/${d}（${DOW[dowOf(d)]}）の予約</h3><div class="muted">この日の予約はありません</div></div>`;
-  return `<div class="card detail"><h3>📖 ${M}/${d}（${DOW[dowOf(d)]}）の予約 ${rs.length}件</h3>${rs.map((r, i) => resCard(d, i, r)).join("")}</div>`;
+const TAGS = ["また会いたい", "やさしい", "清潔", "NGにしたい", "時間にルーズ", "要注意"];
+const FREE = { free: "フリー", special_free: "特別フリー", event_free: "イベフリー" };
+const VISIT = { new: "新規", repeat: "店リピ", honshi: "💗本指名" };
+const PAY = { cash: "現金", card: "カード", card_paid: "カード（決済ずみ）" };
+function wishHtml(r){
+  const w = (v, l) => v === "yes" ? `<span class="wish yes">${l} 希望</span>` : v === "no" ? `<span class="wish no">${l} なし</span>` : "";
+  return w(r.af, "AF") + w(r.raf, "逆AF");
 }
-const TAGS = ["また来たい", "やさしい", "NGにしたい", "時間にルーズ", "要注意"];
-function resCard(d, i, r){
-  const k = d + "-" + i, m = memos[k] || { text:"", tags:[] };
-  return `<div class="res"><div class="t">${r.t}　${esc(r.course)}${r.hon ? "　💗本指名" : ""}</div>
-    <div class="kv"><span>お店</span>${esc(r.store)}</div>
-    <div class="kv"><span>お客さん</span>${esc(r.name)} さま（${esc(r.kind)}）</div>
-    <div class="kv"><span>場所</span>${esc(r.place)}</div>
-    ${r.op ? `<div class="kv"><span>オプション</span>${esc(r.op)}</div>` : ""}
-    <div class="memo-box"><div style="font-size:13px;font-weight:700">📝 お客さんメモ（お店にも届きます）</div>
-      <div class="tags">${TAGS.map(t => `<button class="${m.tags.includes(t) ? "on" : ""}" onclick="tagMemo('${k}','${t}')">${t}</button>`).join("")}</div>
-      <textarea id="memo-${k}" placeholder="例：タバコNG・次は90分希望 など">${esc(m.text)}</textarea>
-      <button class="btn pink full" style="margin-top:6px" onclick="saveMemo('${k}')">保存してお店に送る</button></div></div>`;
+function resCard(r){
+  const off = OFF[r.status], k = String(r.id), m = D.memos[k] || { tags: [], body: "" };
+  const course = `${esc(r.course)}${/^\d+$/.test(r.course) ? "分" : ""}${FREE[r.free] ? "（" + FREE[r.free] + "）" : ""}${r.ext ? "＋延長" + r.ext * 30 + "分" : ""}${r.date ? "＋デート" + r.date * 30 + "分" : ""}`;
+  const opTxt = o => esc(String(o.label || "").replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu, "").trim()) + (o.qty > 1 ? "×" + o.qty : "") + (o.memo ? "（" + esc(o.memo) + "）" : "");
+  const bk = (r.options || []).filter(o => o.back).map(opTxt).join("・"), nb = (r.options || []).filter(o => !o.back).map(opTxt).join("・");
+  const wish = wishHtml(r);
+  const hOpen = D.histOpen[k], H = D.hist[k];
+  return `<div class="res ${off ? "off" : ""}"><div class="t">${hmJ(r.start_at)}〜${hmJ(r.end_at)}　${course} ${off ? `<span class="badge off">${off}</span>` : ""}</div>
+    <div class="kv"><span>お店</span><span>${esc(r.store)}${r.dummy_name ? "（「" + esc(r.dummy_name) + "」で受けています）" : ""}</span></div>
+    <div class="kv"><span>お客さん</span><span>${esc(r.name || "お客")} さま　${VISIT[r.visit] || ""}</span></div>
+    <div class="kv"><span>場所</span><span>${esc([r.area, r.address].filter(Boolean).join(" "))}</span></div>
+    ${wish || r.play ? `<div class="kv"><span>希望プレイ</span><span>${wish}${r.play ? `<div>${esc(r.play)}</div>` : ""}</span></div>` : ""}
+    <div class="kv"><span>バック有OP</span><span>${bk || "なし"}</span></div>
+    <div class="kv"><span>バック無OP</span><span>${nb || "なし"}</span></div>
+    ${r.cast_note ? `<div class="kv"><span>特記事項</span><span style="white-space:pre-wrap">${esc(r.cast_note)}</span></div>` : ""}
+    <div class="kv"><span>お支払い</span><span>${r.payment === "cash" ? "料金総額 " + yen(r.total) + "（最初にいただく）" : PAY[r.payment] || ""}</span></div>
+    ${r.history ? `<button class="btn sky full" style="margin-top:8px" onclick="toggleHist('${k}')">${hOpen ? "▲ とじる" : "📖 このお客さんとの前の利用・メモを見る"}</button>
+      ${hOpen ? `<div class="hist">${!H ? "読みこみ中…" : histHtml(H)}</div>` : ""}` : ""}
+    ${off ? "" : `<div class="memo-box"><div style="font-size:13px;font-weight:700">📝 お客さんメモ（お店にも届きます・ほかのキャストには見えません）</div>
+      <div class="tags">${TAGS.map(t => `<button class="${(m.tags || []).includes(t) ? "on" : ""}" onclick="tagMemo('${k}','${t}')">${t}</button>`).join("")}</div>
+      <textarea id="memo-${k}" maxlength="2000" placeholder="例：タバコNG・次は90分希望 など">${esc(m.body)}</textarea>
+      <button class="btn pink full" style="margin-top:6px" id="msave-${k}" onclick="saveMemo('${k}')">${m.at ? "直して送る" : "保存してお店に送る"}</button></div>`}
+  </div>`;
 }
-function tagMemo(k, t){ const m = memos[k] || (memos[k] = { text:"", tags:[] }); const ta = $("memo-" + k); if(ta) m.text = ta.value; m.tags = m.tags.includes(t) ? m.tags.filter(x => x !== t) : m.tags.concat(t); render(); }
-function saveMemo(k){ const m = memos[k] || (memos[k] = { text:"", tags:[] }); m.text = $("memo-" + k).value; try{ localStorage.setItem("kbCastTestMemo", JSON.stringify(memos)); }catch(e){} toast("🧪 テストなので、お店には届きません（本番は届きます）"); render(); }
-// バック表
-function backTable(){
-  const stores = Object.keys(BACK), cs = BACK[btStore];
-  return `<div class="card"><h3 style="font-size:15px;margin-bottom:8px">💗 わたしのバック表</h3>
-    <div class="muted" style="margin-bottom:6px">お店</div>
-    <div class="bt-pick">${stores.map(s => `<button class="${s === btStore ? "on" : ""}" onclick="btStore='${s}';render()">${esc(s)}</button>`).join("")}</div>
-    <div class="muted" style="margin-bottom:6px">指名</div>
-    <div class="bt-pick"><button class="${!btHon ? "on" : ""}" onclick="btHon=false;render()">本指名じゃない</button><button class="${btHon ? "on" : ""}" onclick="btHon=true;render()">💗 本指名</button></div>
-    <table class="bt-table"><tr><th>コース</th><th>バック</th></tr>
-      ${Object.keys(cs).map(c => `<tr><td>${c}</td><td class="hl">${yen(cs[c][btHon ? 1 : 0])}</td></tr>`).join("")}</table>
-    <div class="muted" style="margin-top:8px">オプションのバック：${Object.keys(OP_BACK).map(o => o + " " + yen(OP_BACK[o])).join("・")}</div></div>`;
+function histHtml(H){
+  if(H.error) return `<span class="muted">読めませんでした</span>`;
+  const v = (H.visits || []).map(x => `<div class="h"><b>${esc(md(x.biz_date))}</b> ${esc(x.store || "")} ${esc(x.course || "")}${/^\d+$/.test(x.course || "") ? "分" : ""}${x.ext ? " 延長" + x.ext : ""}${x.options ? "・" + esc(x.options) : ""} ${OFF[x.status] ? `<span class="badge off">${OFF[x.status]}</span>` : ""}</div>`).join("");
+  const m = (H.memos || []).map(x => `<div class="h">📝 <b>${esc(md(x.biz_date))}</b> ${(x.tags || []).map(t => `<span class="badge" style="background:var(--lavender)">${esc(t)}</span>`).join(" ")} ${esc(x.body || "")}</div>`).join("");
+  return `<div style="font-weight:700;margin-bottom:2px">あなたについた前の利用（${(H.visits || []).length}回）</div>${v || '<div class="muted">ありません</div>'}
+    <div style="font-weight:700;margin:6px 0 2px">あなたが書いたメモ</div>${m || '<div class="muted">ありません</div>'}`;
+}
+async function toggleHist(k){
+  D.histOpen[k] = !D.histOpen[k]; render();
+  if(D.histOpen[k] && !D.hist[k]){
+    try{ const r = await sb.rpc("cast_customer_history", { p_res_id: Number(k) }); D.hist[k] = r.error ? { error: true } : (r.data || {}); }
+    catch(e){ D.hist[k] = { error: true }; }
+    render();
+  }
+}
+function tagMemo(k, t){
+  const m = D.memos[k] = D.memos[k] || { tags: [], body: "" };
+  const ta = $("memo-" + k); if(ta) m.body = ta.value;
+  m.tags = (m.tags || []).includes(t) ? m.tags.filter(x => x !== t) : (m.tags || []).concat(t);
+  render();
+}
+async function saveMemo(k){
+  const m = D.memos[k] = D.memos[k] || { tags: [], body: "" };
+  m.body = $("memo-" + k).value;
+  const b = $("msave-" + k); if(b){ b.disabled = true; b.textContent = "送っています…"; }
+  try{
+    const r = await sb.rpc("cast_memo_save", { p_res_id: Number(k), p_tags: m.tags || [], p_body: m.body || "" });
+    if(r.error || (r.data && r.data.error)) throw new Error((r.error && r.error.message) || r.data.error);
+    m.at = new Date().toISOString();
+    toast("📝 お店に送りました");
+  }catch(e){ alert("送れませんでした：" + (e.message || e)); }
+  render();
+}
+function resDetail(s){
+  const rs = resOf(s);
+  if(!rs.length) return `<div class="card detail"><h3>📖 ${md(s)}の予約</h3><div class="muted">この日の予約はありません</div></div>`;
+  return `<div class="card detail"><h3>📖 ${md(s)}の予約 ${rs.filter(r => !OFF[r.status]).length}件</h3>${rs.map(resCard).join("")}</div>`;
 }
 
-/* ============ A：切りかえ＋カレンダー ============ */
-function tapA(d){ sel = d; render(); setTimeout(() => { const el = $("detail"); if(el) el.scrollIntoView({ behavior:"smooth", block:"start" }); }, 30); }
-function renderA(){
-  const s = monthSum();
-  const segs = [["shift", "📅 シフト"], ["pay", "💴 報酬"], ["res", "📖 予約"]];
-  let top = `<div class="seg">${segs.map(([k, l]) => `<button class="${seg === k ? "on" : ""}" onclick="seg='${k}';render()">${l}</button>`).join("")}</div>`;
-  let sum = seg === "shift" ? `<div class="sum-bar"><div>今月の出勤<b>${s.days}日</b></div><div>未確定<b>${TENT.size}日</b></div></div>`
-          : seg === "pay" ? `<div class="sum-bar"><div>今月の受け取り（確定分）<b>${yen(s.done)}</b></div><div>まだの日<b>${s.wait}日</b></div></div>`
-          : `<div class="sum-bar"><div>今月の予約<b>${s.cnt}件</b></div><div>メモを書いた<b>${Object.keys(memos).length}件</b></div></div>`;
-  let detail = seg === "shift" ? shiftDetail(sel) : seg === "pay" ? payDetail(sel) : resDetail(sel);
-  let extra = seg === "pay" ? `<button class="btn soft full" style="margin-bottom:12px" onclick="seg='back';render()">💗 わたしのバック表を見る</button>` : "";
-  if(seg === "back") return top + `<button class="back" onclick="seg='pay';render()">‹ 報酬にもどる</button>` + backTable();
-  return top + sum + calHtml(seg, "tapA") + `<div class="hint">日付をタップすると、下に出ます</div><div id="detail">${detail}</div>` + extra;
+/* ---------- わたしのバック表（店長が共有した一覧をそのまま）＋ 今の条件 ---------- */
+let btSec = 0;
+async function openBack(){
+  seg = "back"; render();
+  if(!D.back){
+    try{ const r = await sb.rpc("cast_backsheet"); D.back = r.error ? { error: r.error.message } : (r.data || {}); }
+    catch(e){ D.back = { error: e.message || e }; }
+    render();
+  }
+}
+function backHtml(){
+  const B = D.back;
+  let h = `<button class="back" onclick="setSeg('pay')">‹ 報酬にもどる</button><div class="card"><h3 style="font-size:15px;margin-bottom:8px">💗 わたしのバック表</h3>`;
+  if(!B) return h + `<div class="muted">読みこみ中…</div></div>`;
+  if(B.error) return h + `<div class="err">読めませんでした</div></div>`;
+  const secs = []; let cur = null;
+  String(B.body || "").split(/\r?\n/).forEach(l => {
+    const t = l.trim(); if(!t) return;
+    const m = t.match(/^【(.+)】$/);
+    if(m){ cur = { name: m[1], lines: [] }; secs.push(cur); return; }
+    if(!cur){ cur = { name: "バック", lines: [] }; secs.push(cur); }
+    cur.lines.push(t);
+  });
+  if(btSec >= secs.length) btSec = 0;
+  if(secs.length){
+    h += `<div class="bt-pick">${secs.map((s, i) => `<button class="${i === btSec ? "on" : ""}" onclick="btSec=${i};render()">${esc(s.name)}</button>`).join("")}</div>`;
+    h += secs[btSec].lines.map(l => { const mm = l.match(/^(.*?)[\s　]+([0-9０-９,，]+円.*)$/); return /^※|^（|^その他|ボーナス|同額/.test(l) || !mm ? `<div class="bt-note">${esc(l)}</div>` : `<div class="bt-row"><span>${esc(mm[1])}</span><b>${esc(mm[2])}</b></div>`; }).join("");
+  } else h += `<div class="muted">まだ入っていません（お店に聞いてください）</div>`;
+  h += `</div>`;
+  if((B.rules || []).length) h += `<div class="card"><h3 style="font-size:15px;margin-bottom:8px">⭐ あなただけの条件</h3>${B.rules.map(r => `<div class="rule">${esc(r.note)}</div>`).join("")}</div>`;
+  return h;
 }
 
-/* ============ B：メニューから入る ============ */
-function go(p){ page = p; if(p === "res" || p === "pay") sel = sel || today; render(); window.scrollTo(0, 0); }
-function renderB(){
-  const s = monthSum(), back = `<button class="back" onclick="go('home')">‹ メニュー</button>`;
-  if(page === "home"){
-    const nx = Object.keys(RES).map(Number).filter(d => d >= today).sort((a, b) => a - b)[0];
-    return `<div class="menu">
-      <button onclick="go('shift')"><span class="ic">📅</span><span class="lb">シフト</span><span class="sb">今月 ${s.days}日</span></button>
-      <button onclick="go('pay')"><span class="ic">💴</span><span class="lb">報酬・精算</span><span class="sb">確定分 ${yen(s.done)}</span></button>
-      <button onclick="go('res')"><span class="ic">📖</span><span class="lb">予約・お客さん</span><span class="sb">今月 ${s.cnt}件</span></button>
-      <button onclick="go('back')"><span class="ic">💗</span><span class="lb">バック表</span><span class="sb">お店×コース</span></button>
-    </div>
-    ${nx ? `<div class="card" style="margin-top:12px"><div class="muted">次の予約</div><div style="font-weight:800">${M}/${nx}（${DOW[dowOf(nx)]}） ${RES[nx][0].t} ${esc(RES[nx][0].store)} ${RES[nx][0].course}</div></div>` : ""}`;
-  }
-  if(page === "shift") return back + calHtml("shift", "tapB") + `<div id="detail">${shiftDetail(sel)}</div>`;
-  if(page === "back") return back + backTable();
-  if(page === "pay"){
-    let list = "";
-    for(let d = daysIn; d >= 1; d--){ const x = settleOf(d); if(!x) continue;
-      list += `<button class="list-item" onclick="sel=${d};page='payDay';render();window.scrollTo(0,0)"><span>${M}/${d}（${DOW[dowOf(d)]}）　${RES[d].length}件</span>${x.done ? `<b>${yen(x.total)}</b>` : `<span class="badge wait">まだ</span>`}</button>`; }
-    return back + `<div class="sum-bar"><div>今月の受け取り（確定分）<b>${yen(s.done)}</b></div><div>まだの日<b>${s.wait}日</b></div></div>` + list;
-  }
-  if(page === "payDay") return `<button class="back" onclick="go('pay')">‹ 報酬・精算</button>` + payDetail(sel);
-  if(page === "res"){
-    let list = "";
-    Object.keys(RES).map(Number).sort((a, b) => a - b).forEach(d => RES[d].forEach((r, i) => {
-      list += `<button class="list-item" onclick="sel=${d};page='resDay';render();window.scrollTo(0,0)"><span><b>${M}/${d}（${DOW[dowOf(d)]}）</b> ${r.t.split("-")[0]} ${esc(r.store)} ${r.course}${r.hon ? " 💗" : ""}</span><span>${memos[d + "-" + i] ? "📝" : "›"}</span></button>`;
-    }));
-    return back + `<div class="sum-bar"><div>今月の予約<b>${s.cnt}件</b></div><div>メモを書いた<b>${Object.keys(memos).length}件</b></div></div>` + list;
-  }
-  if(page === "resDay") return `<button class="back" onclick="go('res')">‹ 予約・お客さん</button>` + resDetail(sel);
-  return "";
-}
-function tapB(d){ sel = d; render(); }
-
+/* ---------- 画面 ---------- */
 function render(){
-  $("abA").classList.toggle("on", mode === "A"); $("abB").classList.toggle("on", mode === "B");
-  $("view").innerHTML = mode === "A" ? renderA() : renderB();
+  const segs = [["shift", "📅 シフト"], ["pay", "💴 報酬"], ["res", "📖 予約"]];
+  const top = `<div class="seg">${segs.map(([k, l]) => `<button class="${seg === k || (seg === "back" && k === "pay") ? "on" : ""}" onclick="setSeg('${k}')">${l}</button>`).join("")}</div>`;
+  if(seg === "back"){ $("view").innerHTML = top + backHtml(); return; }
+  const days = Object.keys(D.weeks).length ? Array.from({ length: daysIn(Y, M) }, (_, i) => ymd(Y, M, i + 1)).filter(s => shiftOf(s)).length : 0;
+  const paid = Object.values(D.settles).reduce((a, x) => a + (Number(x.take_home) || 0), 0);
+  const wait = [...new Set(D.res.filter(r => !OFF[r.status] && !D.settles[r.biz_date]).map(r => r.biz_date))].length;
+  const cnt = D.res.filter(r => !OFF[r.status]).length;
+  const sum = seg === "shift" ? `<div class="sum-bar"><div>${M}月の出勤<b>${days}日</b></div></div>`
+            : seg === "pay" ? `<div class="sum-bar"><div>${M}月のお給料（確定分）<b>${yen(paid)}</b></div><div>まだの日<b>${wait}日</b></div></div>`
+            : `<div class="sum-bar"><div>${M}月の予約<b>${cnt}件</b></div><div>メモを書いた<b>${Object.keys(D.memos).length}件</b></div></div>`;
+  const detail = seg === "shift" ? shiftDetail(sel) : seg === "pay" ? payDetail(sel) : resDetail(sel);
+  const extra = seg === "pay" ? `<button class="btn soft full" style="margin-bottom:12px" onclick="openBack()">💗 わたしのバック表・条件を見る</button>` : "";
+  // 書きかけのメモは、描きなおしても消えないように
+  const keep = {}; document.querySelectorAll("textarea[id^=memo-]").forEach(t => { keep[t.id] = t.value; });
+  $("view").innerHTML = top + sum + calHtml() + `<div class="hint">日付をタップすると、下に出ます</div><div id="detail">${detail}</div>` + extra;
+  Object.keys(keep).forEach(id => { const t = $(id); if(t) t.value = keep[id]; });
 }
-render();
+boot();
 </script>
 </body>
 </html>
