@@ -83,7 +83,25 @@
   .bt-note{padding:6px 2px;font-size:13px;color:#8A5A00;background:#FFF9E8;border-radius:8px;margin:4px 0;}
   .rule{background:#FFF8DD;border-radius:10px;padding:6px 10px;margin-bottom:6px;font-size:13px;}
   .err{background:#FFE9E9;border-radius:12px;padding:10px 12px;font-size:13px;color:#A33;margin-bottom:10px;}
-  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#4A5560;color:#fff;border-radius:999px;padding:8px 16px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9;}
+  /* 📝 メモ・⚙ 項目：画面いっぱい（スマホで書きやすく。文字は16px＝iPhoneで拡大されない） */
+  .sheet{position:fixed;inset:0;background:#fff;z-index:10;display:flex;flex-direction:column;}
+  .sh-head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);background:#FFF4F8;}
+  .sh-x{border:0;background:#fff;width:36px;height:36px;border-radius:50%;font-size:18px;box-shadow:0 1px 6px rgba(0,0,0,.1);flex:0 0 36px;}
+  .sh-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 14px 24px;max-width:560px;width:100%;margin:0 auto;}
+  .sh-foot{padding:10px 14px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:#fff;max-width:560px;width:100%;margin:0 auto;}
+  .sh-foot .btn{padding:14px;font-size:16px;}
+  .f-l{display:block;font-weight:800;font-size:14px;margin:14px 0 4px;}
+  .f-in{width:100%;font-size:16px;font-family:inherit;border:1.5px solid var(--lavender);border-radius:10px;padding:10px;resize:none;line-height:1.5;background:#fff;color:var(--text);}
+  textarea.f-in{overflow:hidden;min-height:44px;}
+  .f-in:focus{outline:none;border-color:var(--pink-deep);}
+  .f-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+  .f-chips button{border:1.5px solid var(--lavender);background:#fff;border-radius:999px;padding:7px 14px;font-size:14px;font-weight:700;}
+  .f-chips button.on{background:var(--lavender);}
+  .f-prev{background:#F3FAFF;border-radius:8px;padding:6px 10px;font-size:13px;margin-bottom:4px;}
+  .f-prev b{color:#2a7ab8;}
+  .tp-row{border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:10px;}
+  .tp-b{border:1px solid var(--line);background:#fff;border-radius:8px;min-width:40px;height:40px;font-size:16px;}
+  .toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#4A5560;color:#fff;border-radius:999px;padding:8px 16px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20;}
   .toast.show{opacity:.92;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -225,16 +243,21 @@ function resCard(r){
     <div class="kv"><span>お支払い</span><span>${r.payment === "cash" ? "料金総額 " + yen(r.total) + "（最初にいただく）" : PAY[r.payment] || ""}</span></div>
     ${r.history ? `<button class="btn sky full" style="margin-top:8px" onclick="toggleHist('${k}')">${hOpen ? "▲ とじる" : "📖 このお客さんとの前の利用・メモを見る"}</button>
       ${hOpen ? `<div class="hist">${!H ? "読みこみ中…" : histHtml(H)}</div>` : ""}` : ""}
-    ${off ? "" : `<div class="memo-box"><div style="font-size:13px;font-weight:700">📝 お客さんメモ（お店にも届きます・ほかのキャストには見えません）</div>
-      <div class="tags">${TAGS.map(t => `<button class="${(m.tags || []).includes(t) ? "on" : ""}" onclick="tagMemo('${k}','${t}')">${t}</button>`).join("")}</div>
-      <textarea id="memo-${k}" maxlength="2000" placeholder="例：タバコNG・次は90分希望 など">${esc(m.body)}</textarea>
-      <button class="btn pink full" style="margin-top:6px" id="msave-${k}" onclick="saveMemo('${k}')">${m.at ? "直して送る" : "保存してお店に送る"}</button></div>`}
+    ${off ? "" : `<div class="memo-box"><div style="font-size:13px;font-weight:700">📝 お客さんメモ <span class="muted">（お店にも届きます・ほかのキャストには見えません）</span></div>
+      ${m.at ? memoView(m) : `<div class="muted" style="margin:4px 0">まだ書いていません</div>`}
+      <button class="btn pink full" style="margin-top:6px" onclick="openMemo('${k}')">${m.at ? "✏️ メモを直す" : "📝 メモを書く"}</button></div>`}
   </div>`;
+}
+// 書いたメモの見え方（LINE で送っていた形：「あだ名」・項目▶️中身）
+function memoView(m){
+  const f = (m.fields || []).filter(x => String(x.value || "").trim());
+  return `<div style="font-size:13px;white-space:pre-wrap;margin:4px 0">${m.nick ? `<b>「${esc(m.nick)}」</b>\n` : ""}${f.map(x => `${esc(x.label)}▶️${esc(x.value)}`).join("\n")}${m.body ? (f.length ? "\n" : "") + esc(m.body) : ""}</div>
+    ${(m.tags || []).length ? `<div>${m.tags.map(t => `<span class="badge" style="background:var(--lavender)">${esc(t)}</span>`).join(" ")}</div>` : ""}`;
 }
 function histHtml(H){
   if(H.error) return `<span class="muted">読めませんでした</span>`;
   const v = (H.visits || []).map(x => `<div class="h"><b>${esc(md(x.biz_date))}</b> ${esc(x.store || "")} ${esc(x.course || "")}${/^\d+$/.test(x.course || "") ? "分" : ""}${x.ext ? " 延長" + x.ext : ""}${x.options ? "・" + esc(x.options) : ""} ${OFF[x.status] ? `<span class="badge off">${OFF[x.status]}</span>` : ""}</div>`).join("");
-  const m = (H.memos || []).map(x => `<div class="h">📝 <b>${esc(md(x.biz_date))}</b> ${(x.tags || []).map(t => `<span class="badge" style="background:var(--lavender)">${esc(t)}</span>`).join(" ")} ${esc(x.body || "")}</div>`).join("");
+  const m = (H.memos || []).map(x => `<div class="h">📝 <b>${esc(md(x.biz_date))}</b>${memoView(x)}</div>`).join("");
   return `<div style="font-weight:700;margin-bottom:2px">あなたについた前の利用（${(H.visits || []).length}回）</div>${v || '<div class="muted">ありません</div>'}
     <div style="font-weight:700;margin:6px 0 2px">あなたが書いたメモ</div>${m || '<div class="muted">ありません</div>'}`;
 }
@@ -246,23 +269,112 @@ async function toggleHist(k){
     render();
   }
 }
-function tagMemo(k, t){
-  const m = D.memos[k] = D.memos[k] || { tags: [], body: "" };
-  const ta = $("memo-" + k); if(ta) m.body = ta.value;
-  m.tags = (m.tags || []).includes(t) ? m.tags.filter(x => x !== t) : (m.tags || []).concat(t);
-  render();
+/* ---------- 📝 お客さんメモ：画面いっぱいに開いて、テンプレの項目ごとに書く（2026/11/23 店長：スマホで書きやすく） ----------
+   ・項目はキャストごと（⚙ 項目を変える）。はじめはムムのLINEの書き方
+   ・「押すと入る言葉」で、打たなくても入る。年齢・見た目などは「前回のを入れる」
+   ・書きかけは、この端末に残る（アプリを閉じても消えない。送ったら消える） */
+let MK = null, MD = null;   // 開いている予約の ID・書いている中身
+async function loadTpl(){
+  if(D.tpl) return D.tpl;
+  try{ const r = await sb.rpc("cast_memo_tpl"); D.tpl = (r.data && r.data.fields) || []; }catch(e){ D.tpl = []; }
+  return D.tpl;
 }
-async function saveMemo(k){
-  const m = D.memos[k] = D.memos[k] || { tags: [], body: "" };
-  m.body = $("memo-" + k).value;
-  const b = $("msave-" + k); if(b){ b.disabled = true; b.textContent = "送っています…"; }
+const draftKey = k => "kbCastMemoDraft_" + k;
+async function openMemo(k){
+  const r = D.res.find(x => String(x.id) === k); if(!r) return;
+  await loadTpl();
+  const m = D.memos[k] || {};
+  let d = null; try{ d = JSON.parse(localStorage.getItem(draftKey(k)) || "null"); }catch(e){}
+  MK = k;
+  MD = d || { nick: m.nick || "", tags: (m.tags || []).slice(), body: m.body || "", vals: {} };
+  if(!d) (m.fields || []).forEach(x => { MD.vals[x.label] = x.value || ""; });
+  if(r.history && !D.hist[k]){ try{ const h = await sb.rpc("cast_customer_history", { p_res_id: Number(k) }); D.hist[k] = h.error ? { error: true } : (h.data || {}); }catch(e){ D.hist[k] = { error: true }; } }
+  paintMemo();
+  document.body.style.overflow = "hidden";
+}
+function prevMemo(){ const H = D.hist[MK]; return H && !H.error && (H.memos || [])[0] || null; }
+function prevVal(label){ const p = prevMemo(); const f = p && (p.fields || []).find(x => x.label === label); return f ? String(f.value || "") : ""; }
+function keepDraft(){ try{ localStorage.setItem(draftKey(MK), JSON.stringify(MD)); }catch(e){} }
+function paintMemo(){
+  const r = D.res.find(x => String(x.id) === MK), p = prevMemo(), T = D.tpl || [];
+  const canPrev = p && (T.some(f => f.keep && prevVal(f.label) && !String(MD.vals[f.label] || "").trim()) || (p.nick && !MD.nick));
+  let el = $("memoSheet"); if(!el){ el = document.createElement("div"); el.id = "memoSheet"; el.className = "sheet"; document.body.appendChild(el); }
+  el.innerHTML = `<div class="sh-head"><button class="sh-x" onclick="closeMemo()">✕</button>
+      <div><b>📝 ${esc(r.name || "お客")} さまのメモ</b><div class="muted">${esc(md(r.biz_date))} ${hmJ(r.start_at)}〜 ${esc(r.store)}</div></div></div>
+    <div class="sh-body">
+      ${canPrev ? `<button class="btn sky full" style="margin-bottom:10px" onclick="fillPrev()">📋 前回のメモ（${esc(md(p.biz_date))}）から、年齢・見た目などを入れる</button>` : ""}
+      <label class="f-l">あだ名（自分用の呼び名）</label>
+      <div style="display:flex;align-items:center;gap:4px"><span style="font-size:18px">「</span><input class="f-in" id="mf-nick" value="${esc(MD.nick)}" maxlength="40" oninput="MD.nick=this.value;keepDraft()" placeholder="例：五反田コイキング"><span style="font-size:18px">」</span></div>
+      ${T.map((f, i) => {
+        const v = MD.vals[f.label] || "", pv = f.keep ? prevVal(f.label) : "";
+        return `<label class="f-l">${esc(f.label)}</label>
+          ${pv && !v.trim() ? `<div class="f-prev" onclick="setVal(${i}, ${esc(JSON.stringify(pv))})">前回：${esc(pv)} <b>＋入れる</b></div>` : ""}
+          <textarea class="f-in" id="mf-${i}" rows="1" oninput="MD.vals[D.tpl[${i}].label]=this.value;grow(this);keepDraft()">${esc(v)}</textarea>
+          ${(f.chips || []).length ? `<div class="f-chips">${f.chips.map(c => `<button onclick="addChip(${i}, ${esc(JSON.stringify(c))})">${esc(c)}</button>`).join("")}</div>` : ""}`;
+      }).join("")}
+      <label class="f-l">そのほか（自由に）</label>
+      <textarea class="f-in" id="mf-body" rows="2" oninput="MD.body=this.value;grow(this);keepDraft()">${esc(MD.body)}</textarea>
+      <label class="f-l">お店に伝えたいこと（押すとつく）</label>
+      <div class="f-chips">${TAGS.map(t => `<button class="${MD.tags.includes(t) ? "on" : ""}" onclick="tagMemo(${esc(JSON.stringify(t))})">${esc(t)}</button>`).join("")}</div>
+      <button class="btn soft full" style="margin-top:16px" onclick="openTpl()">⚙ メモの項目を変える</button>
+    </div>
+    <div class="sh-foot"><button class="btn pink full" id="mf-save" onclick="saveMemo()">${(D.memos[MK] || {}).at ? "直してお店に送る" : "保存してお店に送る"}</button></div>`;
+  el.querySelectorAll("textarea").forEach(grow);
+}
+function grow(t){ t.style.height = "auto"; t.style.height = Math.max(t.scrollHeight, 44) + "px"; }
+function setVal(i, v){ MD.vals[D.tpl[i].label] = v; keepDraft(); paintMemo(); }
+function addChip(i, c){
+  const t = $("mf-" + i), cur = t ? t.value : (MD.vals[D.tpl[i].label] || "");
+  const v = cur && !/[\s、・]$/.test(cur) ? cur + "、" + c : cur + c;
+  MD.vals[D.tpl[i].label] = v; if(t){ t.value = v; grow(t); } keepDraft();
+}
+function fillPrev(){
+  const p = prevMemo(); if(!p) return;
+  (D.tpl || []).forEach(f => { if(f.keep && !String(MD.vals[f.label] || "").trim()){ const v = prevVal(f.label); if(v) MD.vals[f.label] = v; } });
+  if(!MD.nick && p.nick) MD.nick = p.nick;
+  keepDraft(); paintMemo(); toast("前回のメモから入れました");
+}
+function tagMemo(t){ MD.tags = MD.tags.includes(t) ? MD.tags.filter(x => x !== t) : MD.tags.concat(t); keepDraft(); paintMemo(); }
+function closeMemo(){ const el = $("memoSheet"); if(el) el.remove(); document.body.style.overflow = ""; MK = null; render(); }
+async function saveMemo(){
+  const b = $("mf-save"); if(b){ b.disabled = true; b.textContent = "送っています…"; }
+  const fields = (D.tpl || []).map(f => ({ label: f.label, value: String(MD.vals[f.label] || "").trim() }));
   try{
-    const r = await sb.rpc("cast_memo_save", { p_res_id: Number(k), p_tags: m.tags || [], p_body: m.body || "" });
+    const r = await sb.rpc("cast_memo_save", { p_res_id: Number(MK), p_tags: MD.tags, p_body: MD.body.trim(), p_fields: fields, p_nick: MD.nick.trim() });
     if(r.error || (r.data && r.data.error)) throw new Error((r.error && r.error.message) || r.data.error);
-    m.at = new Date().toISOString();
-    toast("📝 お店に送りました");
-  }catch(e){ alert("送れませんでした：" + (e.message || e)); }
-  render();
+    D.memos[MK] = { tags: MD.tags, body: MD.body.trim(), fields, nick: MD.nick.trim(), at: new Date().toISOString() };
+    try{ localStorage.removeItem(draftKey(MK)); }catch(e){}
+    toast("📝 お店に送りました"); closeMemo();
+  }catch(e){ alert("送れませんでした：" + (e.message || e) + "\n（書いた内容はこの端末に残っています。電波のよいところで、もう一度押してください）"); if(b){ b.disabled = false; b.textContent = "もう一度送る"; } }
+}
+/* ---------- ⚙ メモの項目を変える（自分のテンプレ） ---------- */
+let TP = null;
+function openTpl(){ TP = JSON.parse(JSON.stringify(D.tpl || [])); paintTpl(); }
+function paintTpl(){
+  let el = $("tplSheet"); if(!el){ el = document.createElement("div"); el.id = "tplSheet"; el.className = "sheet"; el.style.zIndex = 12; document.body.appendChild(el); }
+  el.innerHTML = `<div class="sh-head"><button class="sh-x" onclick="closeTpl()">✕</button><div><b>⚙ メモの項目</b><div class="muted">あなただけの項目です（ほかの人のメモは変わりません）</div></div></div>
+    <div class="sh-body">${TP.map((f, i) => `<div class="tp-row">
+        <div style="display:flex;gap:6px;align-items:center"><input class="f-in" value="${esc(f.label)}" maxlength="20" oninput="TP[${i}].label=this.value" placeholder="項目の名前">
+          <button class="tp-b" onclick="tpMove(${i},-1)">↑</button><button class="tp-b" onclick="tpMove(${i},1)">↓</button><button class="tp-b" onclick="TP.splice(${i},1);paintTpl()">🗑</button></div>
+        <input class="f-in" style="margin-top:6px" value="${esc((f.chips || []).join("、"))}" oninput="TP[${i}].chips=this.value.split(/[、,，]/).map(s=>s.trim()).filter(Boolean)" placeholder="押すと入る言葉（「、」で区切る）例：早漏、遅漏">
+        <label style="font-size:13px;display:flex;align-items:center;gap:6px;margin-top:6px"><input type="checkbox" ${f.keep ? "checked" : ""} onchange="TP[${i}].keep=this.checked"> 前回のメモから引きつぐ（年齢・見た目など、変わらないもの）</label></div>`).join("")}
+      <button class="btn soft full" onclick="TP.push({label:'',chips:[],keep:false});paintTpl()">＋ 項目を足す</button>
+      <button class="btn soft full" style="margin-top:8px" onclick="tpReset()">↩ はじめの形にもどす</button></div>
+    <div class="sh-foot"><button class="btn pink full" onclick="saveTpl()">💾 項目を保存</button></div>`;
+}
+function tpMove(i, d){ const j = i + d; if(j < 0 || j >= TP.length) return; [TP[i], TP[j]] = [TP[j], TP[i]]; paintTpl(); }
+function closeTpl(){ const el = $("tplSheet"); if(el) el.remove(); }
+async function saveTpl(){
+  try{
+    const r = await sb.rpc("cast_memo_tpl_save", { p_fields: TP.filter(f => String(f.label || "").trim()) });
+    if(r.error || (r.data && r.data.error)) throw new Error((r.error && r.error.message) || r.data.error);
+    D.tpl = r.data.fields; toast("⚙ 項目を保存しました"); closeTpl(); if(MK) paintMemo();
+  }catch(e){ alert("保存できませんでした：" + (e.message || e)); }
+}
+async function tpReset(){
+  if(!confirm("項目を、はじめの形にもどしますか？")) return;
+  try{ await sb.rpc("cast_memo_tpl_save", { p_fields: null }); D.tpl = null; await loadTpl(); closeTpl(); if(MK) paintMemo(); toast("はじめの形にもどしました"); }
+  catch(e){ alert("もどせませんでした：" + (e.message || e)); }
 }
 function resDetail(s){
   const rs = resOf(s);
