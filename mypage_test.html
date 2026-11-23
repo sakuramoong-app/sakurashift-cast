@@ -344,6 +344,7 @@ function paintMemo(){
   const r = D.res.find(x => String(x.id) === MK), p = prevMemo(), T = D.tpl || [];
   const canPrev = p && (T.some(f => f.keep && prevVal(f.label) && !String(MD.vals[f.label] || "").trim()) || (p.nick && !MD.nick));
   let el = $("memoSheet"); if(!el){ el = document.createElement("div"); el.id = "memoSheet"; el.className = "sheet"; document.body.appendChild(el); }
+  const keepY = el.querySelector(".sh-body") ? el.querySelector(".sh-body").scrollTop : 0;   // 押しても上にもどらないように（2026/11/23 店長）
   el.innerHTML = `<div class="sh-head"><button class="sh-x" onclick="closeMemo()">✕</button>
       <div><b>📝 ${esc(r.name || "お客")} さまのメモ</b><div class="muted">${esc(md(r.biz_date))} ${hmJ(r.start_at)}〜 ${esc(r.store)}</div></div></div>
     <div class="sh-body">
@@ -375,6 +376,7 @@ function paintMemo(){
     </div>
     <div class="sh-foot"><button class="btn pink full" id="mf-save" onclick="saveMemo()">${(D.memos[MK] || {}).at ? "直してお店に送る" : "保存してお店に送る"}</button>${(D.memos[MK] || {}).at ? `<button class="memo-del" onclick="delMemo()">🗑 このメモを消す</button>` : ""}</div>`;
   el.querySelectorAll("textarea").forEach(grow);
+  if(keepY) el.querySelector(".sh-body").scrollTop = keepY;
 }
 function grow(t){ t.style.height = "auto"; t.style.height = Math.max(t.scrollHeight, 44) + "px"; }
 function setVal(i, v){ MD.vals[D.tpl[i].label] = v; keepDraft(); paintMemo(); }
