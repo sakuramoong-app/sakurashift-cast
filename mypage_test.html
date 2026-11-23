@@ -162,6 +162,7 @@ function shiftOf(s){
 }
 const resOf = s => D.res.filter(r => r.biz_date === s);
 const OFF = { cancel: "キャンセル", tobi: "トビ", flowed: "流れた" };
+const APP_START = "2026-11-23";   // アプリに精算が届くようになった日。それより前は LINE で送っていたので「まだ」にしない
 
 /* ---------- カレンダー ---------- */
 function calHtml(){
@@ -170,7 +171,7 @@ function calHtml(){
   for(let d = 1; d <= daysIn(Y, M); d++){
     const s = ymd(Y, M, d); let chips = "";
     if(seg === "shift"){ const x = shiftOf(s); if(x) chips = `<span class="chip shift ${x.ok ? "" : "tent"}">${hrs(x.start)}-${hrs(x.end)}</span>`; }
-    if(seg === "pay"){ const st = D.settles[s]; if(st) chips = `<span class="chip pay">${(st.take_home / 1000).toFixed(1)}千</span>`; else if(resOf(s).some(r => !OFF[r.status])) chips = `<span class="chip pay wait">まだ</span>`; }
+    if(seg === "pay"){ const st = D.settles[s]; if(st) chips = `<span class="chip pay">${(st.take_home / 1000).toFixed(1)}千</span>`; else if(s >= APP_START && resOf(s).some(r => !OFF[r.status])) chips = `<span class="chip pay wait">まだ</span>`; }
     if(seg === "res"){ const rs = resOf(s).filter(r => !OFF[r.status]); if(rs.length) chips = `<span class="chip res">${rs.length}件</span>`; if(resOf(s).some(r => D.memos[r.id])) chips += `<span class="chip memo">📝</span>`; }
     h += `<button class="day ${s === TODAY ? "today" : ""} ${s === sel ? "sel" : ""}" onclick="tap('${s}')"><span class="n">${d}</span>${chips}</button>`;
   }
@@ -190,6 +191,7 @@ function payDetail(s){
   const st = D.settles[s];
   if(!st){
     const has = resOf(s).some(r => !OFF[r.status]);
+    if(has && s < APP_START) return `<div class="card detail"><h3>💴 ${md(s)}の精算</h3><div class="muted">この日の精算は、アプリが始まる前なので LINE で送っています（LINE を見てください）</div></div>`;
     return `<div class="card detail"><h3>💴 ${md(s)}の精算 ${has ? `<span class="badge wait">まだ</span>` : ""}</h3><div class="muted">${has ? "お店が精算を確定すると、ここに明細が出ます" : "この日の精算はありません"}</div></div>`;
   }
   const lines = (st.lines || []).map(l => { const big = /^本日のお給料|^投函額/.test(l); return l === "" ? `<div style="height:6px"></div>` : `<div class="line ${big ? "big" : ""}">${esc(l)}</div>`; }).join("");
@@ -308,7 +310,7 @@ function render(){
   if(seg === "back"){ $("view").innerHTML = top + backHtml(); return; }
   const days = Object.keys(D.weeks).length ? Array.from({ length: daysIn(Y, M) }, (_, i) => ymd(Y, M, i + 1)).filter(s => shiftOf(s)).length : 0;
   const paid = Object.values(D.settles).reduce((a, x) => a + (Number(x.take_home) || 0), 0);
-  const wait = [...new Set(D.res.filter(r => !OFF[r.status] && !D.settles[r.biz_date]).map(r => r.biz_date))].length;
+  const wait = [...new Set(D.res.filter(r => !OFF[r.status] && !D.settles[r.biz_date] && r.biz_date >= APP_START).map(r => r.biz_date))].length;
   const cnt = D.res.filter(r => !OFF[r.status]).length;
   const sum = seg === "shift" ? `<div class="sum-bar"><div>${M}月の出勤<b>${days}日</b></div></div>`
             : seg === "pay" ? `<div class="sum-bar"><div>${M}月のお給料（確定分）<b>${yen(paid)}</b></div><div>まだの日<b>${wait}日</b></div></div>`
