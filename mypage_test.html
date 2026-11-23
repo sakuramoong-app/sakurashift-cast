@@ -99,6 +99,8 @@
   .f-chips button.on{background:var(--lavender);}
   .f-prev{background:#F3FAFF;border-radius:8px;padding:6px 10px;font-size:13px;margin-bottom:4px;}
   .f-prev b{color:#2a7ab8;}
+  .memo-help{background:#FFF8DD;border-radius:10px;padding:8px 12px;font-size:13.5px;margin-bottom:10px;line-height:1.6;}
+  .memo-del{display:block;width:100%;margin-top:8px;border:0;background:none;color:#B24;font-size:14px;font-weight:700;padding:6px;}
   .tpl-btn{display:block;width:100%;margin-top:22px;border:2px dashed #9C6ADE;background:#F3ECFF;color:#5E35B1;border-radius:14px;padding:14px;font-size:16px;font-weight:800;}
   .shopnote{background:#FFEBEE;color:#C62828;border-radius:8px;padding:4px 8px;font-size:13px;font-weight:700;margin-top:4px;white-space:pre-wrap;}
   .tp-row{border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:10px;}
@@ -136,7 +138,7 @@ const nowJ = new Date(Date.now() + 9 * 3600e3 - 6 * 3600e3);
 const TODAY = ymd(nowJ.getUTCFullYear(), nowJ.getUTCMonth() + 1, nowJ.getUTCDate());
 let Y = nowJ.getUTCFullYear(), M = nowJ.getUTCMonth() + 1;
 let seg = "res", sel = TODAY, NAME = "";
-const D = { res: [], settles: {}, memos: {}, weeks: {}, back: null, hist: {}, histOpen: {} };
+const D = { res: [], settles: {}, memos: {}, weeks: {}, back: null, hist: {}, histOpen: {}, imgs: {} };
 try{ seg = localStorage.getItem("kbCastSeg") || "res"; }catch(e){}
 
 const daysIn = (y, m) => new Date(y, m, 0).getDate();
@@ -216,8 +218,23 @@ function payDetail(s){
   }
   const lines = (st.lines || []).map(l => { const big = /^本日のお給料|^投函額/.test(l); return l === "" ? `<div style="height:6px"></div>` : `<div class="line ${big ? "big" : ""}">${esc(l)}</div>`; }).join("");
   const at = new Date(new Date(st.shared_at).getTime() + 9 * 3600e3);
-  return `<div class="card detail"><h3>💴 ${md(s)}の精算明細 <span class="badge ok">確定</span></h3>${lines}
+  const SB = { settled: [`ok`, "✅ 精算済"], home: [`ok`, "🏠 直帰"], unsettled: [`off`, "⏳ 未精算"] }[st.state] || [`ok`, "確定"];
+  if(st.img_path && !D.imgs[st.img_path]) loadImg(st.img_path);
+  const im = st.img_path ? D.imgs[st.img_path] : null;
+  return `<div class="card detail"><h3>💴 ${md(s)}の精算明細 <span class="badge ${SB[0]}">${SB[1]}</span></h3>
+    ${st.state === "unsettled" ? `<div class="muted" style="margin-bottom:6px">この日はまだ精算していません（未精算として残っています）</div>` : ""}
+    ${im && im !== "err" ? `<img src="${im}" alt="精算明細" style="width:100%;border-radius:10px;border:1px solid var(--line)">` : st.img_path && im !== "err" ? `<div class="hint">画像を読みこみ中…</div>` : lines}
     <div class="muted" style="margin-top:6px">確定：${at.getUTCMonth() + 1}/${at.getUTCDate()} ${at.getUTCHours()}:${pad(at.getUTCMinutes())}</div></div>`;
+}
+// 精算の画像（本人のフォルダだけ読める置き場から）
+async function loadImg(path){
+  D.imgs[path] = "loading";
+  try{
+    const r = await sb.storage.from("cast-settle").download(path);
+    if(r.error) throw r.error;
+    D.imgs[path] = URL.createObjectURL(r.data);
+  }catch(e){ D.imgs[path] = "err"; }
+  if(seg === "pay") render();
 }
 const TAGS = ["NG", "要注意"];   // お店に伝えたいこと（選んだら中身を必ず書く。2026/11/23 店長）
 const FREE = { free: "フリー", special_free: "特別フリー", event_free: "イベフリー" };
@@ -305,6 +322,7 @@ function paintMemo(){
   el.innerHTML = `<div class="sh-head"><button class="sh-x" onclick="closeMemo()">✕</button>
       <div><b>📝 ${esc(r.name || "お客")} さまのメモ</b><div class="muted">${esc(md(r.biz_date))} ${hmJ(r.start_at)}〜 ${esc(r.store)}</div></div></div>
     <div class="sh-body">
+      <div class="memo-help">✍️ <b>書けるところだけでOK</b>です。全部書かなくて大丈夫。<br>空いている項目は、お店にも出ません。</div>
       ${canPrev ? `<button class="btn sky full" style="margin-bottom:10px" onclick="fillPrev()">📋 前回のメモ（${esc(md(p.biz_date))}）から、年齢・見た目などを入れる</button>` : ""}
       <label class="f-l">あだ名（自分用の呼び名）</label>
       <div style="display:flex;align-items:center;gap:4px"><span style="font-size:18px">「</span><input class="f-in" id="mf-nick" value="${esc(MD.nick)}" maxlength="40" oninput="MD.nick=this.value;keepDraft()"><span style="font-size:18px">」</span></div>
@@ -323,7 +341,7 @@ function paintMemo(){
         <textarea class="f-in" id="mf-shop" rows="2" style="border-color:#E57373" oninput="MD.shop=this.value;grow(this);keepDraft()" placeholder="お店に伝えたいことを書いてください">${esc(MD.shop)}</textarea>` : ""}
       <button class="tpl-btn" onclick="openTpl()">⚙ メモの項目を変える</button>
     </div>
-    <div class="sh-foot"><button class="btn pink full" id="mf-save" onclick="saveMemo()">${(D.memos[MK] || {}).at ? "直してお店に送る" : "保存してお店に送る"}</button></div>`;
+    <div class="sh-foot"><button class="btn pink full" id="mf-save" onclick="saveMemo()">${(D.memos[MK] || {}).at ? "直してお店に送る" : "保存してお店に送る"}</button>${(D.memos[MK] || {}).at ? `<button class="memo-del" onclick="delMemo()">🗑 このメモを消す</button>` : ""}</div>`;
   el.querySelectorAll("textarea").forEach(grow);
 }
 function grow(t){ t.style.height = "auto"; t.style.height = Math.max(t.scrollHeight, 44) + "px"; }
@@ -340,10 +358,20 @@ function fillPrev(){
   keepDraft(); paintMemo(); toast("前回のメモから入れました");
 }
 function tagMemo(t){ MD.tags = MD.tags.includes(t) ? MD.tags.filter(x => x !== t) : MD.tags.concat(t); keepDraft(); paintMemo(); }
+async function delMemo(){
+  if(!confirm("このメモを消しますか？（お店からも見えなくなります）")) return;
+  try{
+    const r = await sb.rpc("cast_memo_delete", { p_res_id: Number(MK) });
+    if(r.error || (r.data && r.data.error)) throw new Error((r.error && r.error.message) || r.data.error);
+    delete D.memos[MK]; try{ localStorage.removeItem(draftKey(MK)); }catch(e){}
+    toast("🗑 メモを消しました"); closeMemo();
+  }catch(e){ alert("消せませんでした：" + (e.message || e)); }
+}
 function closeMemo(){ const el = $("memoSheet"); if(el) el.remove(); document.body.style.overflow = ""; MK = null; render(); }
 async function saveMemo(){
   const b = $("mf-save"); if(b){ b.disabled = true; b.textContent = "送っています…"; }
   const fields = (D.tpl || []).map(f => ({ label: f.label, value: String(MD.vals[f.label] || "").trim() }));
+  if(!MD.nick.trim() && !MD.body.trim() && !MD.tags.length && !fields.some(f => f.value)){ alert("何も書いていません。1つ以上書いてから送ってください"); if(b){ b.disabled = false; b.textContent = "保存してお店に送る"; } return; }
   if(MD.tags.length && !String(MD.shop || "").trim()){ alert("「" + MD.tags.join("・") + "」を選んだときは、どんなことがあったかを書いてください"); if(b){ b.disabled = false; b.textContent = "保存してお店に送る"; } const t = $("mf-shop"); if(t) t.focus(); return; }
   try{
     const r = await sb.rpc("cast_memo_save", { p_res_id: Number(MK), p_tags: MD.tags, p_body: MD.body.trim(), p_fields: fields, p_nick: MD.nick.trim(), p_shop_note: MD.tags.length ? String(MD.shop || "").trim() : "" });
