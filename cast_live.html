@@ -724,11 +724,13 @@ const STATUS = {
 const TRANSITIONS = {
   unsubmitted:      ['waiting'],
   waiting:          ['input_waiting','inputting','confirmed','unsubmitted'], // キャストが取り下げ可能
-  input_waiting:    ['inputting','confirmed'],
-  inputting:        ['input_waiting','confirmed','waiting'],
+  // ★ 2026/11/24：内勤入力中・入力待ち・変更入力中の週からも、キャストが変更申請を出せる
+  //   （ロボットが媒体に入れるので「内勤入力中」のまま止まる週が多く、すみれが変更申請を出せなかった）
+  input_waiting:    ['inputting','confirmed','change_requested'],
+  inputting:        ['input_waiting','confirmed','waiting','change_requested'],
   confirmed:        ['change_requested'],
-  change_requested: ['change_confirmed','change_inputting','confirmed'],
-  change_inputting: ['change_confirmed','confirmed'],
+  change_requested: ['change_confirmed','change_inputting','confirmed'],   // 申請中の週は、内勤が受理・却下するまで追加の申請はしない（今までどおり）
+  change_inputting: ['change_confirmed','confirmed','change_requested'],
   change_confirmed: ['change_requested'],
 };
 
@@ -2359,7 +2361,8 @@ const CastApp = (function(){
       return;
     }
     // 確定済み・変更申請中 → 変更内容編集ポップアップ（複数日ためる方式）
-    if(info.status==='confirmed' || info.status==='change_confirmed'){
+    // ★ 2026/11/24：内勤入力中・入力待ち・変更入力中の週も、変更申請で出せる（前は「内勤が確認中のため編集できません」で止まっていた）
+    if(['confirmed','change_confirmed','inputting','input_waiting','change_inputting'].includes(info.status)){
       openCrEditPopup(ds, info);
       return;
     }
@@ -2789,7 +2792,7 @@ const CastApp = (function(){
       if(!w||!w.shifts[ds]) continue;
       // ★ 受理待ちブロック：change_requested（申請中）の週は追加申請させない
       //   内勤が受理／却下するまで待つ。連続申請によるデータ欠損・メール連投を防ぐ
-      if(w.status!=='confirmed'&&w.status!=='change_confirmed') continue;
+      if(!['confirmed','change_confirmed','inputting','input_waiting','change_inputting'].includes(w.status)) continue;   // ★ 2026/11/24 内勤入力中なども申請できる
       if(w.vacations&&w.vacations[ds]) continue;
       const dd=new Date(ds+'T12:00:00');
       candidates.push({ds, dows:dows[(dd.getDay()+6)%7], md:`${dd.getMonth()+1}/${dd.getDate()}`, wk, shift:w.shifts[ds]||null, cr:w.changeRequest&&w.changeRequest[ds]});
