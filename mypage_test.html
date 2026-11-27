@@ -62,7 +62,7 @@
   .res .kv{font-size:13px;margin-top:4px;display:flex;gap:6px;}
   .res .kv span:first-child{color:var(--text2);flex:0 0 72px;}
   .wish{display:inline-block;font-weight:800;font-size:13px;border-radius:8px;padding:1px 8px;margin-right:4px;}
-  .wish.yes{background:#FFE0EC;color:#C2185B;} .wish.no{background:var(--rest);color:var(--text2);}
+  .wish.yes{background:#FFE0EC;color:#C2185B;} .wish.no{background:var(--rest);color:var(--text2);} .wish.ask{background:#FFF3C4;color:#8A6100;}
   .memo-box{margin-top:8px;background:#FAF7FF;border-radius:10px;padding:8px;}
   .memo-box textarea{width:100%;min-height:64px;border:1px solid var(--lavender);border-radius:8px;padding:6px;font-family:inherit;font-size:14px;}
   .memo-box .tags{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0;}
@@ -147,6 +147,8 @@ try{ seg = localStorage.getItem("kbCastSeg") || "res"; }catch(e){}
 const daysIn = (y, m) => new Date(y, m, 0).getDate();
 const dowOf = s => new Date(s + "T12:00:00Z").getUTCDay();
 const md = s => { const [, m, d] = s.split("-").map(Number); return `${m}/${d}（${DOW[dowOf(s)]}）`; };
+// 📖 前の利用・メモは年も（2026/11/27 店長：月日だけだといつの年かわからない）
+const ymdY = s => { const [y, m, d] = String(s || "").split("-").map(Number); return y ? `${y}/${m}/${d}（${DOW[dowOf(s)]}）` : ""; };
 function hmJ(iso){ if(!iso) return "--:--"; const d = new Date(new Date(iso).getTime() + 9 * 3600e3); let h = d.getUTCHours(); if(h < 6) h += 24; return h + ":" + pad(d.getUTCMinutes()); }   // 深夜は 26:00 のように
 const hrs = v => { const n = Number(v); if(!isFinite(n)) return String(v || ""); const h = Math.floor(n), mm = Math.round((n - h) * 60); return h + (mm ? ":" + pad(mm) : ""); };
 function weekKey(s){ const d = new Date(s + "T12:00:00Z"), w = d.getUTCDay(); d.setUTCDate(d.getUTCDate() + (w === 0 ? -6 : 1 - w)); return d.toISOString().slice(0, 10); }
@@ -246,6 +248,7 @@ const VISIT = { new: "新規", repeat: "店リピ", honshi: "💗本指名" };
 const PAY = { cash: "現金", card: "カード", card_paid: "カード（決済ずみ）" };
 function wishHtml(r){
   const w = (v, l) => v === "yes" ? `<span class="wish yes">${l} 希望</span>` : v === "no" ? `<span class="wish no">${l} なし</span>` : "";
+  if(r.af === "ask" || r.raf === "ask") return `<span class="wish ask">🤝 AF・逆AF：キャストと相談</span>`;   // 2026/11/28 店長：受付で「キャストと相談」を選んだとき
   return w(r.af, "AF") + w(r.raf, "逆AF");
 }
 function resCard(r){
@@ -300,8 +303,8 @@ function memoView(m){
 }
 function histHtml(H){
   if(H.error) return `<span class="muted">読めませんでした</span>`;
-  const v = (H.visits || []).map(x => `<div class="h"><b>${esc(md(x.biz_date))}</b> ${esc(x.store || "")} ${esc(x.course || "")}${/^\d+$/.test(x.course || "") ? "分" : ""}${x.ext ? " 延長" + x.ext : ""}${x.options ? "・" + esc(x.options) : ""} ${OFF[x.status] ? `<span class="badge off">${OFF[x.status]}</span>` : ""}</div>`).join("");
-  const m = (H.memos || []).map(x => `<div class="h">📝 <b>${esc(md(x.biz_date))}</b>${memoView(x)}</div>`).join("");
+  const v = (H.visits || []).map(x => `<div class="h"><b>${esc(ymdY(x.biz_date))}</b> ${esc(x.store || "")} ${esc(x.course || "")}${/^\d+$/.test(x.course || "") ? "分" : ""}${x.ext ? " 延長" + x.ext : ""}${x.options ? "・" + esc(x.options) : ""} ${OFF[x.status] ? `<span class="badge off">${OFF[x.status]}</span>` : ""}</div>`).join("");
+  const m = (H.memos || []).map(x => `<div class="h">📝 <b>${esc(ymdY(x.biz_date))}</b>${memoView(x)}</div>`).join("");
   return `<div style="font-weight:700;margin-bottom:2px">あなたについた前の利用（${(H.visits || []).length}回）</div>${v || '<div class="muted">ありません</div>'}
     <div style="font-weight:700;margin:6px 0 2px">あなたが書いたメモ</div>${m || '<div class="muted">ありません</div>'}`;
 }
